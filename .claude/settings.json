@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/user/.claude"
+    ],
+    "allow": [
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+# 依存
+node_modules/
+
+# ビルド成果物
+dist/
+*.zip
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+crash.log
+
+# 環境変数
+.env
+.env.*
+!.env.example
+
+# OS・ログ
+.DS_Store
+*.log
+
+# 個人設定
+.claude/settings.local.json
