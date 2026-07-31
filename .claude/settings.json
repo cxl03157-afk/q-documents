@@ -5,6 +5,24 @@
     ],
     "allow": [
       "Bash(python3 -c ' *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(sudo rm *)",
+      "Bash(sudo dd *)",
+      "Bash(sudo mkfs *)",
+      "Bash(sudo fdisk *)",
+      "Bash(git clean *)",
+      "Bash(git reset --hard *)",
+      "Bash(git rebase *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git branch -D *)",
+      "Bash(docker system prune *)",
+      "Bash(npm publish *)",
+      "Bash(pnpm publish *)",
+      "Bash(yarn publish *)"
     ]
   }
 }
