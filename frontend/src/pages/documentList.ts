@@ -1,7 +1,7 @@
 /**
  * S-1 一覧・検索（screens.md §5）。
- * 現在の範囲: ハードコードデータの一覧表示 + 4条件の絞り込み + 解除時の操作列。
- * 関連文書パネル（F-06）・CSV出力（F-08）は未実装。
+ * 現在の範囲: 一覧表示 + 4条件の絞り込み + 解除時の操作列 + 関連文書パネル（F-06）+ CSV出力（F-08）。
+ * データはハードコードで、週2に `GET /documents` へ差し替える。
  */
 
 import type { DocumentRecord, DocumentStatus } from '../../../shared/types';
@@ -9,6 +9,7 @@ import { mockDocuments } from '../mock/documents';
 import { mockMasters } from '../mock/masters';
 import { isUnlocked } from '../auth/session';
 import { escapeHtml } from '../lib/html';
+import { downloadCsv, toCsv } from '../lib/csv';
 
 /**
  * 工程名の絞り込みは持たない。マスタ上 工程番号と工程名は1対1で、
@@ -39,13 +40,32 @@ export function renderDocumentList(): void {
   if (!app) return;
 
   let filters = defaultFilters();
+  /** 関連文書パネル（F-06）の対象。行を選ぶまでは null */
+  let selected: DocumentRecord | null = null;
 
   app.innerHTML = pageTemplate(filters);
-  bindEvents(app, (next) => {
-    filters = next;
-    renderTable(app, filters);
+
+  const redraw = (): void => {
+    renderTable(app, filters, selected);
+    renderRelatedPanel(app, selected);
+  };
+
+  bindEvents(app, {
+    onFilterChange: (next) => {
+      filters = next;
+      // 絞り込みを変えたら選択を解除する。表から消えた行のパネルが残ると対応が分からなくなる
+      selected = null;
+      redraw();
+    },
+    onSelect: (doc) => {
+      // 同じ行をもう一度押したら閉じる
+      selected = selected?.documentNo === doc.documentNo ? null : doc;
+      redraw();
+    },
+    onExport: () => exportCsv(filters),
   });
-  renderTable(app, filters);
+
+  redraw();
 }
 
 function pageTemplate(filters: Filters): string {
@@ -56,6 +76,7 @@ function pageTemplate(filters: Filters): string {
       ${multiSelect('processNos', '工程番号', processNoOptions(), filters.processNos)}
       ${multiSelect('documentTypes', '文書種類', documentTypeOptions(), filters.documentTypes)}
       ${multiSelect('statuses', '状態', statusOptions(), filters.statuses)}
+      <button type="button" id="export-csv" class="btn-end">CSV出力</button>
     </form>
     <table class="document-table">
       <thead>
@@ -74,6 +95,7 @@ function pageTemplate(filters: Filters): string {
       </thead>
       <tbody id="document-rows"></tbody>
     </table>
+    <div id="related-panel"></div>
   `;
 }
 
@@ -122,22 +144,43 @@ function statusOptions(): SelectOption[] {
   return FILTERABLE_STATUSES.map((status) => ({ value: status, label: status }));
 }
 
-function bindEvents(app: HTMLElement, onChange: (filters: Filters) => void): void {
+type Handlers = {
+  onFilterChange: (filters: Filters) => void;
+  onSelect: (doc: DocumentRecord) => void;
+  onExport: () => void;
+};
+
+function bindEvents(app: HTMLElement, handlers: Handlers): void {
   const form = app.querySelector<HTMLFormElement>('#filter-form');
   if (form) {
-    form.addEventListener('change', () => onChange(readFilters(form)));
+    form.addEventListener('change', () => handlers.onFilterChange(readFilters(form)));
   }
+
+  app.querySelector<HTMLButtonElement>('#export-csv')?.addEventListener('click', handlers.onExport);
 
   const tbody = app.querySelector<HTMLTableSectionElement>('#document-rows');
   tbody?.addEventListener('click', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const button = target.closest<HTMLButtonElement>('.btn-download');
-    if (!button) return;
 
-    const label = button.dataset.fileType === 'pdf' ? 'PDF' : 'エクセル';
-    window.alert(`モック: ${button.dataset.doc} の${label}ダウンロードは週3で実装します`);
+    const button = target.closest<HTMLButtonElement>('.btn-download');
+    if (button) {
+      const label = button.dataset.fileType === 'pdf' ? 'PDF' : 'エクセル';
+      window.alert(`モック: ${button.dataset.doc} の${label}ダウンロードは週3で実装します`);
+      return;
+    }
+
+    // 操作列のリンク（アップロード等）を押したときは行選択にしない
+    if (target.closest('a') !== null) return;
+
+    const row = target.closest<HTMLTableRowElement>('tr[data-doc]');
+    const doc = row?.dataset.doc === undefined ? undefined : findByDocumentNo(row.dataset.doc);
+    if (doc !== undefined) handlers.onSelect(doc);
   });
+}
+
+function findByDocumentNo(documentNo: string): DocumentRecord | undefined {
+  return mockDocuments.find((doc) => doc.documentNo === documentNo);
 }
 
 function readFilters(form: HTMLFormElement): Filters {
@@ -155,18 +198,21 @@ function selectedValues(form: HTMLFormElement, name: string): string[] {
   return Array.from(select.selectedOptions).map((opt) => opt.value);
 }
 
-function renderTable(app: HTMLElement, filters: Filters): void {
+function renderTable(app: HTMLElement, filters: Filters, selected: DocumentRecord | null): void {
   const tbody = app.querySelector<HTMLTableSectionElement>('#document-rows');
   if (!tbody) return;
 
-  // 論理削除済みは `GET /documents` が返さない設計（API.md）。絞り込み以前に一覧へ出さない
-  const rows = mockDocuments.filter(
-    (doc) => doc.status !== '削除済み' && matchesFilters(doc, filters),
-  );
+  const rows = visibleRows(filters);
   tbody.innerHTML =
     rows.length > 0
-      ? rows.map(renderRow).join('')
+      ? rows.map((doc) => renderRow(doc, selected)).join('')
       : `<tr><td colspan="10" class="empty-row">該当する文書がありません</td></tr>`;
+}
+
+/** 画面に出ている行。CSV出力の対象もこれと同じにする（F-08「表示中の内容」） */
+function visibleRows(filters: Filters): DocumentRecord[] {
+  // 論理削除済みは `GET /documents` が返さない設計（API.md）。絞り込み以前に一覧へ出さない
+  return mockDocuments.filter((doc) => doc.status !== '削除済み' && matchesFilters(doc, filters));
 }
 
 function matchesFilters(doc: DocumentRecord, filters: Filters): boolean {
@@ -184,10 +230,15 @@ function matchesList(selected: string[], value: string | undefined): boolean {
   return selected.includes(value);
 }
 
-function renderRow(doc: DocumentRecord): string {
-  const rowClass = doc.status === '一部登録' ? ' class="row-warning"' : '';
+function renderRow(doc: DocumentRecord, selected: DocumentRecord | null): string {
+  const classes = [
+    doc.status === '一部登録' ? 'row-warning' : '',
+    selected?.documentNo === doc.documentNo ? 'row-selected' : '',
+  ].filter((c) => c !== '');
+  const classAttr = classes.length === 0 ? '' : ` class="${classes.join(' ')}"`;
+
   return `
-    <tr${rowClass}>
+    <tr${classAttr} data-doc="${escapeHtml(doc.documentNo)}">
       <td>${escapeHtml(doc.documentNo)}</td>
       <td>${escapeHtml(documentTypeName(doc.documentType))}</td>
       <td>${escapeHtml(doc.productCode)}</td>
@@ -242,4 +293,111 @@ function actionLink(doc: DocumentRecord, path: 'upload' | 'revise' | 'edit', lab
 function downloadButton(doc: DocumentRecord, fileType: 'pdf' | 'excel'): string {
   const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
   return `<button type="button" class="btn-download" data-doc="${escapeHtml(doc.documentNo)}" data-file-type="${fileType}">${label}</button>`;
+}
+
+// ---------------------------------------------------------------------------
+// 関連文書パネル（F-06）
+// ---------------------------------------------------------------------------
+
+/**
+ * 選択した行と同じ製品コードの文書を、文書種類ごとに分けて並べる。
+ *
+ * **「最新」のものだけを出す**（screens.md「関連文書の最新版を表示」）。
+ * 旧版やファイル未登録が混ざると、どれを見ればよいか分からなくなる。
+ *
+ * **該当がない種類も「なし」と出す。** 行ごと消すと、未作成なのか表示し忘れなのかが
+ * 区別できない。登録漏れに気づける形にしておく。
+ *
+ * ロック時も表示する。出しているのは文書番号などのメタデータで、ファイルの取得ではない
+ * （screens.md「行の表示とファイルの取得を区別する」）。
+ */
+function renderRelatedPanel(app: HTMLElement, selected: DocumentRecord | null): void {
+  const panel = app.querySelector<HTMLElement>('#related-panel');
+  if (!panel) return;
+
+  if (selected === null) {
+    panel.innerHTML = '';
+    return;
+  }
+
+  const groups = mockMasters
+    .filter((m) => m.category === '文書種類')
+    .map((type) => ({
+      name: type.name,
+      documents: mockDocuments.filter(
+        (doc) =>
+          doc.productCode === selected.productCode &&
+          doc.documentType === type.code &&
+          doc.status === '最新',
+      ),
+    }));
+
+  panel.innerHTML = `
+    <h2 class="related-title">関連文書（製品コード ${escapeHtml(selected.productCode)}）</h2>
+    <table class="related-table">
+      ${groups.map(relatedGroupRow).join('')}
+    </table>
+  `;
+}
+
+function relatedGroupRow(group: { name: string; documents: DocumentRecord[] }): string {
+  const body =
+    group.documents.length === 0
+      ? '<span class="related-empty">なし</span>'
+      : group.documents.map(relatedItem).join('');
+
+  return `
+    <tr>
+      <th>${escapeHtml(group.name)}</th>
+      <td>${body}</td>
+    </tr>
+  `;
+}
+
+function relatedItem(doc: DocumentRecord): string {
+  const process =
+    doc.processNo === undefined
+      ? ''
+      : `（${escapeHtml(doc.processNo)} ${escapeHtml(doc.processName ?? '')}）`;
+  return `<div>${escapeHtml(doc.documentNo)}${process}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// CSV出力（F-08）
+// ---------------------------------------------------------------------------
+
+const CSV_HEADERS = [
+  '文書番号',
+  '文書種類',
+  '製品コード',
+  '工程番号',
+  '工程名',
+  'リビジョン',
+  '状態',
+  '担当者',
+  '文書発行日',
+];
+
+/** 表示中の内容（全件・絞り込み結果とも）を出力する（F-08） */
+function exportCsv(filters: Filters): void {
+  const rows = visibleRows(filters).map((doc) => [
+    doc.documentNo,
+    documentTypeName(doc.documentType),
+    doc.productCode,
+    doc.processNo ?? '',
+    doc.processName ?? '',
+    doc.revision,
+    doc.status,
+    doc.owner,
+    doc.issuedAt,
+  ]);
+
+  const today = new Date();
+  const stamp = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0'),
+  ].join('');
+
+  downloadCsv(`q-documents_${stamp}.csv`, toCsv(CSV_HEADERS, rows));
 }
