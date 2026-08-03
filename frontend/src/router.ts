@@ -60,3 +60,12 @@ export function startRouter(): void {
   window.addEventListener('hashchange', resolve);
   resolve();
 }
+
+/**
+ * 現在のルートを描き直す。
+ * 解除/ロックの切り替えでは一覧の操作列（エクセル・旧版のボタン）も変わるため、
+ * ヘッダーだけを描き直しても足りない。
+ */
+export function refreshRoute(): void {
+  resolve();
+}

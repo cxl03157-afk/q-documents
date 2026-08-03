@@ -2,20 +2,27 @@
  * 共通ヘッダー（screens.md §3）。
  * 全画面で「今どちらの状態か」を常に見せる（解除し忘れ・解除したまま離席の両方を防ぐため）。
  *
- * 今日（8/1）はロック時の表示のみ実装する。解除時の表示（[新規発行][マスタ管理]・氏名・[終了]）は
- * ロック/解除の状態管理とあわせて 8/2 に実装する。
+ * ロック時は書き込み導線を出さないが、S-2 への入口だけは常設する。
+ * これがないと生産技術の担当者が解除画面に到達できない。
  */
 
-import { isUnlocked } from '../auth/session';
+import { endSession, getSession } from '../auth/session';
+import { escapeHtml } from '../lib/html';
 
 export function renderHeader(): void {
   const el = document.querySelector<HTMLElement>('#app-header');
   if (!el) return;
 
-  el.innerHTML = isUnlocked() ? renderUnlockedHeader() : renderLockedHeader();
+  const session = getSession();
+  el.innerHTML = session === null ? lockedHeader() : unlockedHeader(session.userName);
+
+  el.querySelector<HTMLButtonElement>('#end-session')?.addEventListener('click', () => {
+    endSession();
+    location.hash = '#/';
+  });
 }
 
-function renderLockedHeader(): string {
+function lockedHeader(): string {
   return `
     <div class="header-bar">
       <span class="app-title">Q-documents</span>
@@ -24,7 +31,16 @@ function renderLockedHeader(): string {
   `;
 }
 
-function renderUnlockedHeader(): string {
-  // TODO(8/2): 氏名表示・[新規発行][マスタ管理]・[終了] を実装する
-  return renderLockedHeader();
+function unlockedHeader(userName: string): string {
+  return `
+    <div class="header-bar">
+      <span class="app-title">Q-documents</span>
+      <nav class="header-nav">
+        <a href="#/documents/new" class="header-link">新規発行</a>
+        <a href="#/masters" class="header-link">マスタ管理</a>
+      </nav>
+      <span class="header-user">${escapeHtml(userName)}（生産技術）</span>
+      <button type="button" id="end-session" class="btn-end">終了</button>
+    </div>
+  `;
 }

@@ -65,6 +65,70 @@ h1 {
   text-decoration: underline;
 }
 
+/* 解除時ヘッダー: [新規発行][マスタ管理] … 氏名 [終了] */
+.header-nav {
+  display: flex;
+  gap: 12px;
+  margin-right: auto;
+  margin-left: 24px;
+}
+
+.header-link {
+  font-size: 14px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.header-link:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.header-user {
+  font-size: 14px;
+  color: var(--text-h);
+  margin-right: 12px;
+}
+
+.btn-end {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn-end:hover {
+  background: var(--bg-subtle);
+}
+
+/* 自動ロックの予告・終了のお知らせ */
+.notice {
+  padding: 10px 24px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--text-h);
+}
+
+.notice:empty {
+  display: none;
+}
+
+/* 未実装画面の仮ページ（②以降で差し替える） */
+.placeholder {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
 #app {
   max-width: 1200px;
   margin: 0 auto;
