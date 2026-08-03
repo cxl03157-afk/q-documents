@@ -121,6 +121,61 @@ h1 {
   display: none;
 }
 
+/* S-2 解除フォーム */
+.unlock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  max-width: 360px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  font-size: 14px;
+}
+
+.form-field select,
+.form-field input {
+  font: inherit;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.form-error {
+  margin: 0;
+  font-size: 14px;
+  color: var(--warning-border);
+}
+
+.form-error:empty {
+  display: none;
+}
+
+.btn-primary {
+  font: inherit;
+  padding: 8px 24px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
 /* 未実装画面の仮ページ（②以降で差し替える） */
 .placeholder {
   padding: 16px;

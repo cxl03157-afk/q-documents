@@ -3,6 +3,7 @@ import { startRouter, addRoute, refreshRoute } from './router';
 import { renderHeader } from './components/header';
 import { renderDocumentList } from './pages/documentList';
 import { renderPlaceholder } from './pages/placeholder';
+import { renderUnlock } from './pages/unlock';
 import { SESSION_CHANGE_EVENT } from './auth/session';
 import { requireUnlock } from './auth/guard';
 import { startAutoLock } from './auth/autoLock';
@@ -15,7 +16,7 @@ addRoute('/', () => {
 // S-2 は解除前に開く画面なので guard を付けない
 addRoute('/unlock', () => {
   renderHeader();
-  renderPlaceholder('S-2 生産技術モード解除');
+  renderUnlock();
 });
 
 // S-3〜S-7 はロック中に開かせない（screens.md §2）
