@@ -15,6 +15,8 @@ export const mockMasters: MasterRecord[] = [
   { category: '製品コード', code: 'P-0003', name: '製品C', status: '有効', registeredAt: '2026-01-10' },
   // 文書が1件もない製品。新規発行を最後まで通して確認するために置いている
   { category: '製品コード', code: 'P-0004', name: '製品D', status: '有効', registeredAt: '2026-01-10' },
+  // 製品によらない共通作業。作業指示書だけが紐づく（PFMEA・QC工程表は存在しない）
+  { category: '製品コード', code: 'COM001', name: '共通作業', status: '有効', registeredAt: '2026-01-10', isCommon: true },
 
   { category: '工程番号', code: 'K001', name: '工程1', status: '有効', registeredAt: '2026-01-10' },
   { category: '工程番号', code: 'K002', name: '工程2', status: '有効', registeredAt: '2026-01-10' },
@@ -34,4 +36,19 @@ export function activeMasters(category: MasterCategory): MasterRecord[] {
 
 export function findMaster(category: MasterCategory, code: string): MasterRecord | undefined {
   return mockMasters.find((m) => m.category === category && m.code === code);
+}
+
+/**
+ * 共通コード（製品によらない作業）か。
+ * 共通コードには工程単位の文書（作業指示書）しか存在しない。
+ */
+export function isCommonProductCode(productCode: string): boolean {
+  return findMaster('製品コード', productCode)?.isCommon === true;
+}
+
+/** その製品コードで発行できる文書種類。共通コードでは工程単位のものだけ */
+export function selectableDocumentTypes(productCode: string): MasterRecord[] {
+  const types = activeMasters('文書種類');
+  if (!isCommonProductCode(productCode)) return types;
+  return types.filter((t) => t.numberingRule === '工程単位');
 }

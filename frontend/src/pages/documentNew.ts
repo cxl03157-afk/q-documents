@@ -9,7 +9,12 @@ import type { DocumentRecord, NumberingRule } from '../../../shared/types';
 import { INITIAL_REVISION, buildDocumentNo, buildSortKey } from '../../../shared/documentNo';
 import { escapeHtml } from '../lib/html';
 import { addMockDocument, mockDocuments } from '../mock/documents';
-import { activeMasters, findMaster } from '../mock/masters';
+import {
+  activeMasters,
+  findMaster,
+  isCommonProductCode,
+  selectableDocumentTypes,
+} from '../mock/masters';
 
 type Step = 'input' | 'previewed' | 'registered';
 
@@ -80,8 +85,13 @@ function formTemplate(state: State): string {
           <span>文書種類</span>
           <select name="documentType" required>
             <option value="">選択してください</option>
-            ${optionsHtml(activeMasters('文書種類').map((m) => ({ value: m.code, label: m.name })), state.documentType)}
+            ${optionsHtml(selectableDocumentTypes(state.productCode).map((m) => ({ value: m.code, label: m.name })), state.documentType)}
           </select>
+          ${
+            isCommonProductCode(state.productCode)
+              ? '<span class="form-note">共通コードのため、工程単位の文書種類だけを表示しています</span>'
+              : ''
+          }
         </label>
 
         <label class="form-field">
@@ -231,6 +241,14 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
 function readForm(form: HTMLFormElement, state: State): void {
   state.documentType = fieldValue(form, 'documentType');
   state.productCode = fieldValue(form, 'productCode');
+
+  // 共通コードに切り替えたとき、選択済みの文書種類が対象外になることがある。
+  // 残しておくと、選択肢に出ていない種類のまま採番できてしまう
+  const stillSelectable = selectableDocumentTypes(state.productCode).some(
+    (t) => t.code === state.documentType,
+  );
+  if (!stillSelectable) state.documentType = '';
+
   state.processNo = fieldValue(form, 'processNo');
   state.owner = fieldValue(form, 'owner');
   state.issuedAt = fieldValue(form, 'issuedAt');
@@ -271,6 +289,12 @@ function generateNumber(state: State): void {
     return;
   }
 
+  // 画面では選択肢から外しているが、開発者ツールから回避できる（CLAUDE.md §7）
+  if (isCommonProductCode(state.productCode) && rule !== '工程単位') {
+    state.error = '共通コードには工程単位の文書種類（作業指示書）だけを登録できます';
+    return;
+  }
+
   let processName: string | undefined;
   if (rule === '工程単位') {
     const process = findMaster('工程番号', state.processNo);
@@ -306,6 +330,9 @@ function generateNumber(state: State): void {
 function findExisting(state: State, rule: NumberingRule): DocumentRecord | undefined {
   const candidates = mockDocuments.filter(
     (doc) =>
+      // 論理削除したものは数えない。数えると「削除して発行し直す」ができなくなる
+      // （CLAUDE.md §5。詰まったレコードの復旧手段がなくなる）
+      doc.status !== '削除済み' &&
       doc.documentType === state.documentType &&
       doc.productCode === state.productCode &&
       (rule === '製品単位' || doc.processNo === state.processNo),

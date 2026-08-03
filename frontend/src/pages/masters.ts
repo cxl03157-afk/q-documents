@@ -20,7 +20,7 @@ const CATEGORIES: MasterCategory[] = ['文書種類', '製品コード', '工程
 const FORBIDDEN_CHARS = ['#', '/'];
 
 /** 入力中の値。保存に失敗しても打ち直させないために保持する */
-type Draft = { code: string; name: string; numberingRule: string };
+type Draft = { code: string; name: string; numberingRule: string; isCommon: boolean };
 
 type State = {
   category: MasterCategory;
@@ -73,6 +73,7 @@ function template(state: State): string {
           <th>コード</th>
           <th>名称</th>
           ${state.category === '文書種類' ? '<th>採番ルール</th>' : ''}
+          ${state.category === '製品コード' ? '<th>共通コード</th>' : ''}
           <th>状態</th>
           <th>操作</th>
         </tr>
@@ -83,7 +84,10 @@ function template(state: State): string {
       </tbody>
     </table>
 
-    ${state.adding ? '' : '<button type="button" id="add" class="btn-primary">追加</button>'}
+    <div class="result-actions">
+      ${state.adding ? '' : '<button type="button" id="add" class="btn-primary">追加</button>'}
+      <a class="btn-end" href="#/">一覧へ戻る</a>
+    </div>
     </div>
   `;
 }
@@ -107,12 +111,15 @@ function rowsHtml(state: State): string {
 
 function viewRow(state: State, record: MasterRecord): string {
   const rule = state.category === '文書種類' ? `<td>${escapeHtml(record.numberingRule ?? '—')}</td>` : '';
+  const common =
+    state.category === '製品コード' ? `<td>${record.isCommon === true ? '共通' : '—'}</td>` : '';
 
   return `
     <tr>
       <td>${escapeHtml(record.code)}</td>
       <td>${escapeHtml(record.name)}</td>
       ${rule}
+      ${common}
       <td>${escapeHtml(record.status)}</td>
       <td>
         <button type="button" class="btn-row-link" data-edit="${escapeHtml(record.code)}">修正</button>
@@ -131,6 +138,13 @@ function formRow(state: State, record: MasterRecord | null): string {
   const code = state.draft?.code ?? record?.code ?? '';
   const name = state.draft?.name ?? record?.name ?? '';
   const selectedRule = (state.draft?.numberingRule as NumberingRule | undefined) ?? record?.numberingRule;
+  const isCommon = state.draft?.isCommon ?? record?.isCommon ?? false;
+
+  // 共通コード（製品によらない作業）。工程単位の文書種類だけが紐づく
+  const common =
+    state.category === '製品コード'
+      ? `<td><input type="checkbox" name="isCommon"${isCommon ? ' checked' : ''} /></td>`
+      : '';
 
   const rule =
     state.category === '文書種類'
@@ -148,6 +162,7 @@ function formRow(state: State, record: MasterRecord | null): string {
       </td>
       <td><input name="name" value="${escapeHtml(name)}" /></td>
       ${rule}
+      ${common}
       <td>${escapeHtml(record?.status ?? '有効')}</td>
       <td>
         <button type="button" class="btn-row-link" id="save">保存</button>
@@ -248,9 +263,10 @@ function save(app: HTMLElement, state: State): void {
   const code = inputValue(row, 'code').trim();
   const name = inputValue(row, 'name').trim();
   const numberingRule = inputValue(row, 'numberingRule') as NumberingRule | '';
+  const isCommon = row.querySelector<HTMLInputElement>('[name="isCommon"]')?.checked ?? false;
 
   // 失敗しても打ち直させないよう、検証の前に入力値を控える
-  state.draft = { code, name, numberingRule };
+  state.draft = { code, name, numberingRule, isCommon };
 
   state.error = validate(state, code, name);
   if (state.error !== '') return;
@@ -264,10 +280,12 @@ function save(app: HTMLElement, state: State): void {
       status: '有効',
       registeredAt: new Date().toISOString().slice(0, 10),
       ...(state.category === '文書種類' && numberingRule !== '' ? { numberingRule } : {}),
+      ...(state.category === '製品コード' ? { isCommon } : {}),
     });
   } else {
     existing.name = name;
     if (state.category === '文書種類' && numberingRule !== '') existing.numberingRule = numberingRule;
+    if (state.category === '製品コード') existing.isCommon = isCommon;
   }
 
   state.adding = false;

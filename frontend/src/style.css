@@ -54,6 +54,11 @@ h1 {
 .app-title {
   font-weight: 600;
   color: var(--text-h);
+  text-decoration: none;
+}
+
+.app-title:hover {
+  text-decoration: underline;
 }
 
 .unlock-link {
@@ -368,6 +373,25 @@ h1 {
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+}
+
+/* 絞り込みの右に置く操作。flex の既定では高さが揃って
+   ボタンが縦に伸びるため、align-items で上端に揃える */
+.filter-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: 18px; /* ラベル分だけ下げてプルダウンの高さに合わせる */
+}
+
+.bulk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-actions .btn-end {
+  white-space: nowrap;
 }
 
 .filter-field select {

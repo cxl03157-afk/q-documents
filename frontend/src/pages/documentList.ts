@@ -6,7 +6,7 @@
 
 import type { DocumentRecord, DocumentStatus } from '../../../shared/types';
 import { mockDocuments } from '../mock/documents';
-import { mockMasters } from '../mock/masters';
+import { mockMasters, isCommonProductCode } from '../mock/masters';
 import { isUnlocked } from '../auth/session';
 import { escapeHtml } from '../lib/html';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -23,8 +23,16 @@ type Filters = {
   statuses: DocumentStatus[];
 };
 
-// 削除済みは GET /documents が返さない設計（API.md）なので、絞り込みの選択肢にも出さない。
 const FILTERABLE_STATUSES: DocumentStatus[] = ['ファイル未登録', '一部登録', '最新', '旧版'];
+
+/**
+ * 「削除済み」は解除時にだけ選べる。
+ * 何を消したのかを生産技術が後から追えるようにするため。
+ * 一般利用者に見せる必要はないので、ロック時は選択肢自体を出さない。
+ */
+function filterableStatuses(): DocumentStatus[] {
+  return isUnlocked() ? [...FILTERABLE_STATUSES, '削除済み'] : FILTERABLE_STATUSES;
+}
 
 function defaultFilters(): Filters {
   return {
@@ -48,6 +56,7 @@ export function renderDocumentList(): void {
   const redraw = (): void => {
     renderTable(app, filters, selected);
     renderRelatedPanel(app, selected);
+    renderBulkButtons(app, filters);
   };
 
   bindEvents(app, {
@@ -63,6 +72,7 @@ export function renderDocumentList(): void {
       redraw();
     },
     onExport: () => exportCsv(filters),
+    onBulkDownload: (fileType) => bulkDownload(filters, fileType),
   });
 
   redraw();
@@ -76,7 +86,14 @@ function pageTemplate(filters: Filters): string {
       ${multiSelect('processNos', '工程番号', processNoOptions(), filters.processNos)}
       ${multiSelect('documentTypes', '文書種類', documentTypeOptions(), filters.documentTypes)}
       ${multiSelect('statuses', '状態', statusOptions(), filters.statuses)}
-      <button type="button" id="export-csv" class="btn-end">CSV出力</button>
+      <div class="filter-actions">
+        <button type="button" id="export-csv" class="btn-end">CSV出力</button>
+        <!-- PDF とエクセルは対になる操作なので縦に並べる -->
+        <div class="bulk-actions">
+          <button type="button" id="bulk-pdf" class="btn-end"></button>
+          <button type="button" id="bulk-excel" class="btn-end"></button>
+        </div>
+      </div>
     </form>
     <table class="document-table">
       <thead>
@@ -141,13 +158,14 @@ function documentTypeOptions(): SelectOption[] {
 }
 
 function statusOptions(): SelectOption[] {
-  return FILTERABLE_STATUSES.map((status) => ({ value: status, label: status }));
+  return filterableStatuses().map((status) => ({ value: status, label: status }));
 }
 
 type Handlers = {
   onFilterChange: (filters: Filters) => void;
   onSelect: (doc: DocumentRecord) => void;
   onExport: () => void;
+  onBulkDownload: (fileType: FileType) => void;
 };
 
 function bindEvents(app: HTMLElement, handlers: Handlers): void {
@@ -157,6 +175,10 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
   }
 
   app.querySelector<HTMLButtonElement>('#export-csv')?.addEventListener('click', handlers.onExport);
+  app.querySelector<HTMLButtonElement>('#bulk-pdf')
+    ?.addEventListener('click', () => handlers.onBulkDownload('pdf'));
+  app.querySelector<HTMLButtonElement>('#bulk-excel')
+    ?.addEventListener('click', () => handlers.onBulkDownload('excel'));
 
   const tbody = app.querySelector<HTMLTableSectionElement>('#document-rows');
   tbody?.addEventListener('click', (event) => {
@@ -209,10 +231,18 @@ function renderTable(app: HTMLElement, filters: Filters, selected: DocumentRecor
       : `<tr><td colspan="10" class="empty-row">該当する文書がありません</td></tr>`;
 }
 
-/** 画面に出ている行。CSV出力の対象もこれと同じにする（F-08「表示中の内容」） */
+/** 画面に出ている行。CSV出力・まとめてダウンロードの対象もこれと同じにする */
 function visibleRows(filters: Filters): DocumentRecord[] {
-  // 論理削除済みは `GET /documents` が返さない設計（API.md）。絞り込み以前に一覧へ出さない
-  return mockDocuments.filter((doc) => doc.status !== '削除済み' && matchesFilters(doc, filters));
+  return mockDocuments.filter((doc) => showsDeleted(doc, filters) && matchesFilters(doc, filters));
+}
+
+/**
+ * 削除済みは「状態」で明示的に選んだときだけ出す。
+ * 絞り込みを空にしたときに紛れ込むと、消したはずのものが通常の一覧に現れる。
+ */
+function showsDeleted(doc: DocumentRecord, filters: Filters): boolean {
+  if (doc.status !== '削除済み') return true;
+  return isUnlocked() && filters.statuses.includes('削除済み');
 }
 
 function matchesFilters(doc: DocumentRecord, filters: Filters): boolean {
@@ -269,7 +299,14 @@ function renderActions(doc: DocumentRecord): string {
   } else if (doc.status === '旧版' && unlocked) {
     buttons.push(downloadButton(doc, 'pdf'));
     buttons.push(downloadButton(doc, 'excel'));
+  } else if (doc.status === '削除済み' && unlocked) {
+    // 削除済みでも、万一のときに中身を確認できるようエクセルだけは取得できるようにする。
+    // PDFは配布物なので出さない（消したはずの版が現場に出回るのを防ぐ）
+    buttons.push(downloadButton(doc, 'excel'));
   }
+
+  // 削除済みは書き込みの対象外。リビジョンアップも修正もできない
+  if (doc.status === '削除済み') return buttons.join(' ') || '—';
 
   // 解除時のみ行に出す書き込み導線（screens.md §5「その他の操作」）
   if (unlocked) {
@@ -320,8 +357,12 @@ function renderRelatedPanel(app: HTMLElement, selected: DocumentRecord | null): 
     return;
   }
 
+  // 共通コードには製品単位の文書（PFMEA・QC工程表）が存在しない。
+  // 出すと「なし」が欠品の警告に見えてしまうため、行ごと出さない
+  const common = isCommonProductCode(selected.productCode);
+
   const groups = mockMasters
-    .filter((m) => m.category === '文書種類')
+    .filter((m) => m.category === '文書種類' && (!common || m.numberingRule === '工程単位'))
     .map((type) => ({
       name: type.name,
       documents: mockDocuments.filter(
@@ -400,4 +441,81 @@ function exportCsv(filters: Filters): void {
   ].join('');
 
   downloadCsv(`q-documents_${stamp}.csv`, toCsv(CSV_HEADERS, rows));
+}
+
+// ---------------------------------------------------------------------------
+// まとめてダウンロード
+// ---------------------------------------------------------------------------
+
+type FileType = 'pdf' | 'excel';
+
+/**
+ * 一度に落とせる件数の上限。
+ *
+ * 絞り込みをせずに押すと台帳の全件が対象になる。実運用は数百〜数千件で、
+ * ファイルの総量は400GB規模を見込んでいるため、そのまま流すとブラウザ側が破綻する。
+ * ZIPでまとめる案は採らない（Lambdaで大容量を集めて圧縮すると、
+ * 実行時間・メモリ・コストのすべてが月1,000円の制約に合わない）。
+ */
+const BULK_DOWNLOAD_LIMIT = 50;
+
+/**
+ * まとめてダウンロードの対象。行ごとのボタンの出し分けと同じ条件にする
+ * （ロック時は最新のPDFのみ、解除時は旧版とエクセルも。screens.md §5 S-1 の表）。
+ */
+function bulkTargets(filters: Filters, fileType: FileType): DocumentRecord[] {
+  const unlocked = isUnlocked();
+
+  return visibleRows(filters).filter((doc) => {
+    if (fileType === 'excel') {
+      // 削除済みのエクセルも対象。行に出ているボタンと対象を揃える
+      return unlocked && doc.status !== 'ファイル未登録' && doc.status !== '一部登録';
+    }
+    if (doc.status === '最新') return true;
+    return doc.status === '旧版' && unlocked;
+  });
+}
+
+/** 押す前に件数が分かるようにボタン自体に出す。押してから件数を知るのでは遅い */
+function renderBulkButtons(app: HTMLElement, filters: Filters): void {
+  const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
+  if (pdfButton) {
+    const count = bulkTargets(filters, 'pdf').length;
+    pdfButton.textContent = `PDFをまとめてダウンロード（${count}件）`;
+    pdfButton.disabled = count === 0;
+  }
+
+  const excelButton = app.querySelector<HTMLButtonElement>('#bulk-excel');
+  if (excelButton) {
+    const count = bulkTargets(filters, 'excel').length;
+    // エクセルは解除時のみ（対象0件のときは押せる意味がないので隠す）
+    excelButton.hidden = !isUnlocked();
+    excelButton.textContent = `エクセルをまとめてダウンロード（${count}件）`;
+    excelButton.disabled = count === 0;
+  }
+}
+
+function bulkDownload(filters: Filters, fileType: FileType): void {
+  const targets = bulkTargets(filters, fileType);
+  const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
+
+  if (targets.length > BULK_DOWNLOAD_LIMIT) {
+    window.alert(
+      `一度にダウンロードできるのは${BULK_DOWNLOAD_LIMIT}件までです` +
+        `（現在 ${targets.length}件）。絞り込んでから実行してください。`,
+    );
+    return;
+  }
+
+  // 週3では、対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、
+  // 得た署名付きURLを順にダウンロードさせる。新しいAPIは要らない。
+  // エクセル・旧版のアクセスログ（CLAUDE.md §8-7）もファイル単位で残る。
+  window.alert(
+    `モック: ${label} ${targets.length}件のまとめてダウンロードは週3で実装します\n` +
+      targets
+        .slice(0, 5)
+        .map((doc) => doc.documentNo)
+        .join('\n') +
+      (targets.length > 5 ? `\n…ほか${targets.length - 5}件` : ''),
+  );
 }

@@ -173,7 +173,21 @@ export function findMockDocument(documentNo: string): DocumentRecord | undefined
   return mockDocuments.find((doc) => doc.documentNo === documentNo);
 }
 
-/** 週2で `POST /documents` / `POST /documents/{docNo}/revisions` に差し替える */
+/**
+ * 週2で `POST /documents` / `POST /documents/{docNo}/revisions` に差し替える。
+ *
+ * **同じキー（製品コード＋SK）のレコードがあれば置き換える。**
+ * DynamoDB は同じ PK/SK への書き込みが上書きになるので、モックもその挙動に揃える。
+ * 揃えないと、論理削除したものを発行し直したときに同じ文書番号の行が2つでき、
+ * 検索が先に見つけた「削除済み」を返してアップロードできなくなる。
+ */
 export function addMockDocument(record: DocumentRecord): void {
-  mockDocuments.push(record);
+  const index = mockDocuments.findIndex(
+    (doc) => doc.productCode === record.productCode && doc.sortKey === record.sortKey,
+  );
+  if (index === -1) {
+    mockDocuments.push(record);
+    return;
+  }
+  mockDocuments[index] = record;
 }

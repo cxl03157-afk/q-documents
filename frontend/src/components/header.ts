@@ -25,7 +25,7 @@ export function renderHeader(): void {
 function lockedHeader(): string {
   return `
     <div class="header-bar">
-      <span class="app-title">Q-documents</span>
+      <a href="#/" class="app-title">Q-documents</a>
       <a href="#/unlock" class="unlock-link">生産技術の方はこちら →</a>
     </div>
   `;
@@ -34,8 +34,14 @@ function lockedHeader(): string {
 function unlockedHeader(userName: string): string {
   return `
     <div class="header-bar">
-      <span class="app-title">Q-documents</span>
+      <a href="#/" class="app-title">Q-documents</a>
       <nav class="header-nav">
+        <!--
+          タイトルも #/ へのリンクにしてあるが、[一覧] を別に置く。
+          「ロゴを押すとホームに戻る」という慣習は、PC操作に不慣れな利用者には通じない
+          前提で作る（screens.md §6）。S-3・S-6 はここでしか一覧に戻れない。
+        -->
+        <a href="#/" class="header-link">一覧</a>
         <a href="#/documents/new" class="header-link">新規発行</a>
         <a href="#/masters" class="header-link">マスタ管理</a>
       </nav>
