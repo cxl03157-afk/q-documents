@@ -5,7 +5,7 @@
  * 「操作の記録」「残り1分の警告」「ロックへ切り替わったことの通知」の3つだけ。
  */
 
-import { endSession, isUnlocked, remainingUnlockMs, touch } from './session';
+import { SESSION_CHANGE_EVENT, endSession, isUnlocked, remainingUnlockMs, touch } from './session';
 
 /** 残りこれを切ったら警告を出す（screens.md §4: 残り1分で警告） */
 const WARN_BEFORE_MS = 60 * 1000;
@@ -33,6 +33,16 @@ export function startAutoLock(): void {
     // capture: true — 画面側が stopPropagation してもタイマーが延びるようにする
     window.addEventListener(type, onActivity, { passive: true, capture: true });
   }
+
+  // 解除・終了が起きた時点で「前回の状態」を覚え直す。
+  // これがないと、ヘッダーの[終了]で手動ロックした直後の tick が
+  // 「解除済み → ロック」の変化を見て自動ロックと誤判定し、
+  // 自分で終了したのに「無操作のため終了しました」と出る。
+  window.addEventListener(SESSION_CHANGE_EVENT, () => {
+    wasUnlocked = isUnlocked();
+    if (wasUnlocked) showAutoLockedNotice = false; // 解除し直したらお知らせを消す
+    renderNotice();
+  });
 
   wasUnlocked = isUnlocked();
   window.setInterval(tick, CHECK_INTERVAL_MS);
