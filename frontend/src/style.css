@@ -253,12 +253,96 @@ h1 {
   background: var(--bg-subtle);
 }
 
-/* 未実装画面の仮ページ（②以降で差し替える） */
-.placeholder {
-  padding: 16px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
+/* S-7 の編集できない項目 */
+.detail-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.detail-table th,
+.detail-table td {
+  padding: 6px 16px 6px 0;
+  text-align: left;
+  font-weight: normal;
+}
+
+.detail-table th {
+  color: var(--text-h);
+  white-space: nowrap;
+}
+
+.form-note {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.form-info {
+  margin: 0;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.form-info:empty {
+  display: none;
+}
+
+.btn-danger {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: 1px solid var(--warning-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--warning-border);
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: var(--warning-bg);
+}
+
+/* S-6 のタブと編集行 */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tab:hover {
   background: var(--bg-subtle);
+}
+
+.tab-active {
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.editing-row input,
+.editing-row select {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
 }
 
 #app {

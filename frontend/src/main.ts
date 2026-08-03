@@ -2,10 +2,12 @@ import './style.css';
 import { startRouter, addRoute, refreshRoute } from './router';
 import { renderHeader } from './components/header';
 import { renderDocumentList } from './pages/documentList';
-import { renderPlaceholder } from './pages/placeholder';
 import { renderUnlock } from './pages/unlock';
 import { renderDocumentNew } from './pages/documentNew';
 import { renderDocumentRevise } from './pages/documentRevise';
+import { renderDocumentUpload } from './pages/documentUpload';
+import { renderDocumentEdit } from './pages/documentEdit';
+import { renderMasters } from './pages/masters';
 import { SESSION_CHANGE_EVENT } from './auth/session';
 import { requireUnlock } from './auth/guard';
 import { startAutoLock } from './auth/autoLock';
@@ -42,7 +44,7 @@ addRoute(
   '/documents/:docNo/upload',
   requireUnlock(({ docNo }) => {
     renderHeader();
-    renderPlaceholder('S-5 ファイルアップロード', docNo);
+    renderDocumentUpload(docNo!);
   }),
 );
 
@@ -50,7 +52,7 @@ addRoute(
   '/documents/:docNo/edit',
   requireUnlock(({ docNo }) => {
     renderHeader();
-    renderPlaceholder('S-7 台帳の修正・論理削除', docNo);
+    renderDocumentEdit(docNo!);
   }),
 );
 
@@ -58,7 +60,7 @@ addRoute(
   '/masters',
   requireUnlock(() => {
     renderHeader();
-    renderPlaceholder('S-6 マスタ管理');
+    renderMasters();
   }),
 );
 

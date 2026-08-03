@@ -159,7 +159,10 @@ function renderTable(app: HTMLElement, filters: Filters): void {
   const tbody = app.querySelector<HTMLTableSectionElement>('#document-rows');
   if (!tbody) return;
 
-  const rows = mockDocuments.filter((doc) => matchesFilters(doc, filters));
+  // 論理削除済みは `GET /documents` が返さない設計（API.md）。絞り込み以前に一覧へ出さない
+  const rows = mockDocuments.filter(
+    (doc) => doc.status !== '削除済み' && matchesFilters(doc, filters),
+  );
   tbody.innerHTML =
     rows.length > 0
       ? rows.map(renderRow).join('')
@@ -219,6 +222,11 @@ function renderActions(doc: DocumentRecord): string {
 
   // 解除時のみ行に出す書き込み導線（screens.md §5「その他の操作」）
   if (unlocked) {
+    // 採番した日とファイルが揃う日は別になるので、一覧からアップロードを再開できるようにする。
+    // 「一部登録」には出さない。S-5 が同一種別の登録済みを拒否するため、押せば必ず失敗する
+    if (doc.status === 'ファイル未登録') {
+      buttons.push(actionLink(doc, 'upload', 'アップロード'));
+    }
     buttons.push(actionLink(doc, 'revise', 'リビジョンアップ'));
     buttons.push(actionLink(doc, 'edit', '修正'));
   }
@@ -226,7 +234,7 @@ function renderActions(doc: DocumentRecord): string {
   return buttons.join(' ') || '—';
 }
 
-function actionLink(doc: DocumentRecord, path: 'revise' | 'edit', label: string): string {
+function actionLink(doc: DocumentRecord, path: 'upload' | 'revise' | 'edit', label: string): string {
   const href = `#/documents/${encodeURIComponent(doc.documentNo)}/${path}`;
   return `<a class="btn-row-link" href="${href}">${label}</a>`;
 }
