@@ -1,7 +1,7 @@
 /**
  * S-1 一覧・検索（screens.md §5）。
- * 今日（8/1）の範囲: ハードコードデータの一覧表示 + 5条件の絞り込み。
- * 関連文書パネル（F-06）・CSV出力（F-08）・解除時の操作列（リビジョンアップ/修正）は 8/3 に実装する。
+ * 現在の範囲: ハードコードデータの一覧表示 + 4条件の絞り込み + 解除時の操作列。
+ * 関連文書パネル（F-06）・CSV出力（F-08）は未実装。
  */
 
 import type { DocumentRecord, DocumentStatus } from '../../../shared/types';
@@ -10,10 +10,14 @@ import { mockMasters } from '../mock/masters';
 import { isUnlocked } from '../auth/session';
 import { escapeHtml } from '../lib/html';
 
+/**
+ * 工程名の絞り込みは持たない。マスタ上 工程番号と工程名は1対1で、
+ * 別々の絞り込みにすると `K001` ＋ `工程2` のように食い違う組み合わせを選べてしまい、
+ * 結果が常に0件になる。工程番号の選択肢に工程名を併記して同じ用途を満たす（screens.md S-1）。
+ */
 type Filters = {
   productCodes: string[];
   processNos: string[];
-  processNames: string[];
   documentTypes: string[];
   statuses: DocumentStatus[];
 };
@@ -25,7 +29,6 @@ function defaultFilters(): Filters {
   return {
     productCodes: [],
     processNos: [],
-    processNames: [],
     documentTypes: [],
     statuses: ['最新'],
   };
@@ -51,7 +54,6 @@ function pageTemplate(filters: Filters): string {
     <form id="filter-form" class="filter-form">
       ${multiSelect('productCodes', '製品コード', productCodeOptions(), filters.productCodes)}
       ${multiSelect('processNos', '工程番号', processNoOptions(), filters.processNos)}
-      ${multiSelect('processNames', '工程名', processNameOptions(), filters.processNames)}
       ${multiSelect('documentTypes', '文書種類', documentTypeOptions(), filters.documentTypes)}
       ${multiSelect('statuses', '状態', statusOptions(), filters.statuses)}
     </form>
@@ -110,12 +112,6 @@ function processNoOptions(): SelectOption[] {
     .map((m) => ({ value: m.code, label: `${m.code}（${m.name}）` }));
 }
 
-function processNameOptions(): SelectOption[] {
-  return mockMasters
-    .filter((m) => m.category === '工程番号' && m.status === '有効')
-    .map((m) => ({ value: m.name, label: m.name }));
-}
-
 function documentTypeOptions(): SelectOption[] {
   return mockMasters
     .filter((m) => m.category === '文書種類' && m.status === '有効')
@@ -148,7 +144,6 @@ function readFilters(form: HTMLFormElement): Filters {
   return {
     productCodes: selectedValues(form, 'productCodes'),
     processNos: selectedValues(form, 'processNos'),
-    processNames: selectedValues(form, 'processNames'),
     documentTypes: selectedValues(form, 'documentTypes'),
     statuses: selectedValues(form, 'statuses') as DocumentStatus[],
   };
@@ -175,7 +170,6 @@ function matchesFilters(doc: DocumentRecord, filters: Filters): boolean {
   return (
     matchesList(filters.productCodes, doc.productCode) &&
     matchesList(filters.processNos, doc.processNo) &&
-    matchesList(filters.processNames, doc.processName) &&
     matchesList(filters.documentTypes, doc.documentType) &&
     matchesList(filters.statuses, doc.status)
   );
