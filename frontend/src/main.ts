@@ -4,6 +4,8 @@ import { renderHeader } from './components/header';
 import { renderDocumentList } from './pages/documentList';
 import { renderPlaceholder } from './pages/placeholder';
 import { renderUnlock } from './pages/unlock';
+import { renderDocumentNew } from './pages/documentNew';
+import { renderDocumentRevise } from './pages/documentRevise';
 import { SESSION_CHANGE_EVENT } from './auth/session';
 import { requireUnlock } from './auth/guard';
 import { startAutoLock } from './auth/autoLock';
@@ -24,7 +26,7 @@ addRoute(
   '/documents/new',
   requireUnlock(() => {
     renderHeader();
-    renderPlaceholder('S-3 新規文書発行');
+    renderDocumentNew();
   }),
 );
 
@@ -32,7 +34,7 @@ addRoute(
   '/documents/:docNo/revise',
   requireUnlock(({ docNo }) => {
     renderHeader();
-    renderPlaceholder('S-4 リビジョンアップ', docNo);
+    renderDocumentRevise(docNo!);
   }),
 );
 

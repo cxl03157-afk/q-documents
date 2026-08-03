@@ -223,7 +223,18 @@ function renderActions(doc: DocumentRecord): string {
     buttons.push(downloadButton(doc, 'excel'));
   }
 
+  // 解除時のみ行に出す書き込み導線（screens.md §5「その他の操作」）
+  if (unlocked) {
+    buttons.push(actionLink(doc, 'revise', 'リビジョンアップ'));
+    buttons.push(actionLink(doc, 'edit', '修正'));
+  }
+
   return buttons.join(' ') || '—';
+}
+
+function actionLink(doc: DocumentRecord, path: 'revise' | 'edit', label: string): string {
+  const href = `#/documents/${encodeURIComponent(doc.documentNo)}/${path}`;
+  return `<a class="btn-row-link" href="${href}">${label}</a>`;
 }
 
 function downloadButton(doc: DocumentRecord, fileType: 'pdf' | 'excel'): string {

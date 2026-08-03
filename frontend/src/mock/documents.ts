@@ -7,6 +7,10 @@
 
 import type { DocumentRecord } from '../../../shared/types';
 
+/**
+ * モックの台帳。S-3・S-4 の登録はこの配列への追加で表現する。
+ * ページを再読込すると初期状態に戻る（永続化は週2の API 接続で入る）。
+ */
 export const mockDocuments: DocumentRecord[] = [
   // P-0001: PFMEA が旧版→最新でリビジョンアップ済み
   {
@@ -164,3 +168,12 @@ export const mockDocuments: DocumentRecord[] = [
     s3KeyExcel: 'P-0003_K001_工程1_01.xlsx',
   },
 ];
+
+export function findMockDocument(documentNo: string): DocumentRecord | undefined {
+  return mockDocuments.find((doc) => doc.documentNo === documentNo);
+}
+
+/** 週2で `POST /documents` / `POST /documents/{docNo}/revisions` に差し替える */
+export function addMockDocument(record: DocumentRecord): void {
+  mockDocuments.push(record);
+}
