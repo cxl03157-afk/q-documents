@@ -1,0 +1,11 @@
+# このファイルをコピーして terraform.tfvars を作る。
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars は .gitignore 済み（*.tfvars）。実値をコミットしない。
+
+# AWS Budgets のアラート送り先
+budget_notification_email = "you@example.com"
+
+# 月額の上限（USD）。要件の「月1,000円以内」を 1USD=145円 で換算した既定値は 7。
+# 変更する場合のみ記入する
+# monthly_budget_usd = 7

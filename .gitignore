@@ -13,6 +13,10 @@ dist/
 *.tfvars.json
 !*.tfvars.example
 crash.log
+# 保存済みプラン。バイナリで、作った時点の state に紐づくため共有しても意味がない
+tfplan
+*.tfplan
+# .terraform.lock.hcl は除外しない。プロバイダのバージョン固定はコミットして共有する
 
 # 環境変数
 .env
