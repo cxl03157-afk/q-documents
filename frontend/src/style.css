@@ -1,0 +1,526 @@
+:root {
+  --text: #3f3f46;
+  --text-h: #18181b;
+  --bg: #ffffff;
+  --bg-subtle: #f4f4f5;
+  --border: #d4d4d8;
+  --accent: #2563eb;
+  --warning-bg: #fef3c7;
+  --warning-border: #f59e0b;
+
+  font: 16px/145% system-ui, 'Segoe UI', 'Hiragino Kaku Gothic ProN', sans-serif;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #d4d4d8;
+    --text-h: #f4f4f5;
+    --bg: #18181b;
+    --bg-subtle: #27272a;
+    --border: #3f3f46;
+    --accent: #60a5fa;
+    --warning-bg: #451a03;
+    --warning-border: #f59e0b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+  color: var(--text-h);
+  margin: 20px 0;
+}
+
+/* 共通ヘッダー */
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.app-title {
+  font-weight: 600;
+  color: var(--text-h);
+  text-decoration: none;
+}
+
+.app-title:hover {
+  text-decoration: underline;
+}
+
+.unlock-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.unlock-link:hover {
+  text-decoration: underline;
+}
+
+/* 解除時ヘッダー: [新規発行][マスタ管理] … 氏名 [終了] */
+.header-nav {
+  display: flex;
+  gap: 12px;
+  margin-right: auto;
+  margin-left: 24px;
+}
+
+.header-link {
+  font-size: 14px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.header-link:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.header-user {
+  font-size: 14px;
+  color: var(--text-h);
+  margin-right: 12px;
+}
+
+.btn-end {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn-end:hover {
+  background: var(--bg-subtle);
+}
+
+/* 自動ロックの予告・終了のお知らせ */
+.notice {
+  padding: 10px 24px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--text-h);
+}
+
+.notice:empty {
+  display: none;
+}
+
+/* S-2 解除フォーム */
+.unlock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  max-width: 360px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  font-size: 14px;
+}
+
+.form-field select,
+.form-field input {
+  font: inherit;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.form-error {
+  margin: 0;
+  font-size: 14px;
+  color: var(--warning-border);
+}
+
+.form-error:empty {
+  display: none;
+}
+
+.btn-primary {
+  font: inherit;
+  padding: 8px 24px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+/* S-3 / S-4 の入力フォームと結果表示 */
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  max-width: 420px;
+}
+
+.entry-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.entry-fieldset:disabled {
+  opacity: 0.6;
+}
+
+.form-field input[readonly] {
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+
+.result-panel {
+  max-width: 560px;
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.result-panel p {
+  margin: 6px 0;
+}
+
+.result-number {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-h);
+  word-break: break-all;
+}
+
+.result-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.result-actions .btn-primary,
+.result-actions .btn-end {
+  text-decoration: none;
+  display: inline-block;
+}
+
+/* 一覧の行に出す書き込み導線 */
+.btn-row-link {
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-row-link:hover {
+  background: var(--bg-subtle);
+}
+
+/* S-7 の編集できない項目 */
+.detail-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.detail-table th,
+.detail-table td {
+  padding: 6px 16px 6px 0;
+  text-align: left;
+  font-weight: normal;
+}
+
+.detail-table th {
+  color: var(--text-h);
+  white-space: nowrap;
+}
+
+.form-note {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.form-info {
+  margin: 0;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.form-info:empty {
+  display: none;
+}
+
+.btn-danger {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: 1px solid var(--warning-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--warning-border);
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: var(--warning-bg);
+}
+
+/* S-6 のタブと編集行 */
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--bg-subtle);
+}
+
+.tab-active {
+  border-color: var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.editing-row input,
+.editing-row select {
+  font: inherit;
+  font-size: 14px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+
+/* 絞り込みフォーム */
+.filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+/* fieldset の既定の枠線・余白を消す。枠は中の .filter-options 側に持たせる */
+.filter-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.filter-field legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+/* 候補が増えても枠の高さは変えず、この中だけスクロールさせる。
+   フォーム全体が伸びると一覧が下に押し出される */
+.filter-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-options input {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 絞り込みの右に置く操作。flex の既定では高さが揃って
+   ボタンが縦に伸びるため、align-items で上端に揃える */
+.filter-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-top: 18px; /* legend の分だけ下げて、選択肢の枠の上端に合わせる */
+}
+
+.bulk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-actions .btn-end {
+  white-space: nowrap;
+}
+
+/* 一覧テーブル */
+.document-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.document-table th,
+.document-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.document-table thead th {
+  color: var(--text-h);
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+}
+
+.document-table tbody tr:hover {
+  background: var(--bg-subtle);
+}
+
+.document-table tr.row-warning {
+  background: var(--warning-bg);
+}
+
+.document-table tr.row-warning:hover {
+  background: var(--warning-bg);
+  filter: brightness(0.97);
+}
+
+.document-table .empty-row {
+  text-align: center;
+  color: var(--text);
+  white-space: normal;
+}
+
+.btn-download {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.btn-download:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* 関連文書パネル（F-06） */
+.related-title {
+  font-size: 16px;
+  color: var(--text-h);
+  margin: 24px 0 8px;
+}
+
+.related-table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.related-table th,
+.related-table td {
+  padding: 6px 16px 6px 0;
+  text-align: left;
+  vertical-align: top;
+  font-weight: normal;
+}
+
+.related-table th {
+  color: var(--text-h);
+  white-space: nowrap;
+}
+
+.related-empty {
+  opacity: 0.6;
+}
+
+/* 選択中の行（関連文書パネルの対象） */
+.document-table tbody tr {
+  cursor: pointer;
+}
+
+.document-table tr.row-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
