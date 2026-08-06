@@ -368,11 +368,47 @@ h1 {
   background: var(--bg-subtle);
 }
 
+/* fieldset の既定の枠線・余白を消す。枠は中の .filter-options 側に持たせる */
 .filter-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.filter-field legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+/* 候補が増えても枠の高さは変えず、この中だけスクロールさせる。
+   フォーム全体が伸びると一覧が下に押し出される */
+.filter-options {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
+  gap: 2px;
+  min-width: 160px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-options input {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
 }
 
 /* 絞り込みの右に置く操作。flex の既定では高さが揃って
@@ -381,7 +417,7 @@ h1 {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding-top: 18px; /* ラベル分だけ下げてプルダウンの高さに合わせる */
+  padding-top: 18px; /* legend の分だけ下げて、選択肢の枠の上端に合わせる */
 }
 
 .bulk-actions {
@@ -392,16 +428,6 @@ h1 {
 
 .filter-actions .btn-end {
   white-space: nowrap;
-}
-
-.filter-field select {
-  min-width: 140px;
-  font: inherit;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
 }
 
 /* 一覧テーブル */

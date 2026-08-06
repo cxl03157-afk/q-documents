@@ -12,7 +12,9 @@ export const mockMasters: MasterRecord[] = [
 
   { category: '製品コード', code: 'P-0001', name: '製品A', status: '有効', registeredAt: '2026-01-10' },
   { category: '製品コード', code: 'P-0002', name: '製品B', status: '有効', registeredAt: '2026-01-10' },
-  { category: '製品コード', code: 'P-0003', name: '製品C', status: '有効', registeredAt: '2026-01-10' },
+  // 廃番になった製品。文書は3件残っている。
+  // S-3 では選べず、S-1 の絞り込みには「（無効）」付きで出ることを確認するために無効にしてある
+  { category: '製品コード', code: 'P-0003', name: '製品C', status: '無効', registeredAt: '2026-01-10' },
   // 文書が1件もない製品。新規発行を最後まで通して確認するために置いている
   { category: '製品コード', code: 'P-0004', name: '製品D', status: '有効', registeredAt: '2026-01-10' },
   // 製品によらない共通作業。作業指示書だけが紐づく（PFMEA・QC工程表は存在しない）
@@ -27,8 +29,10 @@ export const mockMasters: MasterRecord[] = [
 
 /**
  * 登録用の選択肢。無効化されたマスタは新しい文書に選ばせない。
- * （S-1 の検索側で無効を除外してよいかは 8/3 のモックレビューで判断する。
- *   過去の文書が無効化されたマスタを参照しているため、検索では出したい可能性がある）
+ *
+ * 検索（S-1）では無効も出す。無効化は新規発行の停止であって過去の記録を隠すことではなく、
+ * 検索から外すと廃番になった瞬間にその製品の文書へ到達できなくなるため
+ * （選択肢の組み立ては documentList.ts の masterOptions を見る）。
  */
 export function activeMasters(category: MasterCategory): MasterRecord[] {
   return mockMasters.filter((m) => m.category === category && m.status === '有効');

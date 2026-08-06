@@ -4,7 +4,12 @@
  * データはハードコードで、週2に `GET /documents` へ差し替える。
  */
 
-import type { DocumentRecord, DocumentStatus } from '../../../shared/types';
+import type {
+  DocumentRecord,
+  DocumentStatus,
+  MasterCategory,
+  MasterRecord,
+} from '../../../shared/types';
 import { mockDocuments } from '../mock/documents';
 import { mockMasters, isCommonProductCode } from '../mock/masters';
 import { isUnlocked } from '../auth/session';
@@ -118,6 +123,14 @@ function pageTemplate(filters: Filters): string {
 
 type SelectOption = { value: string; label: string };
 
+/**
+ * 絞り込みはチェックボックス群で出す（screens.md S-1）。
+ * `<select multiple>` は複数選ぶのに Ctrl/⌘＋クリックが要り、
+ * 普通にクリックすると他の選択が消える。PC操作に不慣れな利用者が対象なので使えない。
+ *
+ * 見出しに `<label>` を使わない。個々の選択肢が `<label>` を必要とするため、
+ * 外側も `<label>` にすると入れ子になり、クリックがどちらに効くのか決まらない。
+ */
 function multiSelect(
   name: keyof Filters,
   label: string,
@@ -126,35 +139,59 @@ function multiSelect(
 ): string {
   const optionsHtml = options
     .map((opt) => {
-      const isSelected = selected.includes(opt.value) ? ' selected' : '';
-      return `<option value="${escapeHtml(opt.value)}"${isSelected}>${escapeHtml(opt.label)}</option>`;
+      const isChecked = selected.includes(opt.value) ? ' checked' : '';
+      return `
+        <label>
+          <input type="checkbox" name="${name}" value="${escapeHtml(opt.value)}"${isChecked}>
+          <span>${escapeHtml(opt.label)}</span>
+        </label>
+      `;
     })
     .join('');
 
   return `
-    <label class="filter-field">
-      <span>${escapeHtml(label)}</span>
-      <select name="${name}" multiple size="4">${optionsHtml}</select>
-    </label>
+    <fieldset class="filter-field">
+      <legend>${escapeHtml(label)}</legend>
+      <div class="filter-options">${optionsHtml}</div>
+    </fieldset>
   `;
 }
 
-function productCodeOptions(): SelectOption[] {
+/**
+ * 検索の選択肢は無効化されたマスタも出す（screens.md S-1）。
+ *
+ * 登録（S-3）と検索（S-1）では必要な制約が違う。登録は実在しない組み合わせを
+ * 作らせないために選択肢を絞るのが正しいが、検索は既にある文書へ到達する手段なので、
+ * 絞ると「マスタを無効にした瞬間に過去の文書が探せなくなる」。
+ * 無効化は新規発行の停止であって、過去の記録を隠すことではない。
+ *
+ * 台帳に実在するコードから選択肢を作る案は採らない。週2の API 接続時に、
+ * 絞り込みの選択肢を組み立てるためだけに台帳の全件取得が必要になるため。
+ */
+function masterOptions(
+  category: MasterCategory,
+  toLabel: (master: MasterRecord) => string,
+): SelectOption[] {
   return mockMasters
-    .filter((m) => m.category === '製品コード' && m.status === '有効')
-    .map((m) => ({ value: m.code, label: `${m.code}（${m.name}）` }));
+    .filter((m) => m.category === category)
+    // 有効を先に出す。無効は普段使わないので、上に混ざると選びにくい
+    .sort((a, b) => Number(a.status === '無効') - Number(b.status === '無効'))
+    .map((m) => ({
+      value: m.code,
+      label: m.status === '無効' ? `${toLabel(m)}（無効）` : toLabel(m),
+    }));
+}
+
+function productCodeOptions(): SelectOption[] {
+  return masterOptions('製品コード', (m) => `${m.code}（${m.name}）`);
 }
 
 function processNoOptions(): SelectOption[] {
-  return mockMasters
-    .filter((m) => m.category === '工程番号' && m.status === '有効')
-    .map((m) => ({ value: m.code, label: `${m.code}（${m.name}）` }));
+  return masterOptions('工程番号', (m) => `${m.code}（${m.name}）`);
 }
 
 function documentTypeOptions(): SelectOption[] {
-  return mockMasters
-    .filter((m) => m.category === '文書種類' && m.status === '有効')
-    .map((m) => ({ value: m.code, label: m.name }));
+  return masterOptions('文書種類', (m) => m.name);
 }
 
 function statusOptions(): SelectOption[] {
@@ -214,10 +251,16 @@ function readFilters(form: HTMLFormElement): Filters {
   };
 }
 
+/**
+ * 同じ name のチェックボックスから、チェック済みの値だけを集める。
+ *
+ * `form.elements.namedItem(name)` は使わない。選択肢が1個のときは HTMLInputElement、
+ * 2個以上のときは RadioNodeList を返すため、マスタの件数によって型が変わる。
+ * querySelectorAll なら件数に関係なく同じコードで済む。
+ */
 function selectedValues(form: HTMLFormElement, name: string): string[] {
-  const select = form.elements.namedItem(name);
-  if (!(select instanceof HTMLSelectElement)) return [];
-  return Array.from(select.selectedOptions).map((opt) => opt.value);
+  const checked = form.querySelectorAll<HTMLInputElement>(`input[name="${name}"]:checked`);
+  return Array.from(checked).map((input) => input.value);
 }
 
 function renderTable(app: HTMLElement, filters: Filters, selected: DocumentRecord | null): void {
