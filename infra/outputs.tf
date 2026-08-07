@@ -35,6 +35,21 @@ output "async_role_arn" {
   value       = aws_iam_role.async.arn
 }
 
+output "cloudfront_domain_name" {
+  description = "Domain name of the SPA distribution (open this in a browser)"
+  value       = aws_cloudfront_distribution.frontend.domain_name
+}
+
+output "cloudfront_distribution_id" {
+  description = "Distribution ID used by scripts/deploy-frontend.sh for cache invalidation"
+  value       = aws_cloudfront_distribution.frontend.id
+}
+
+output "api_invoke_url" {
+  description = "Base URL of the API (set as VITE_API_BASE_URL in the frontend)"
+  value       = aws_api_gateway_stage.prod.invoke_url
+}
+
 output "passphrase_parameter_name" {
   description = "SSM parameter that holds the passphrase (value is set via AWS CLI, not Terraform)"
   value       = aws_ssm_parameter.passphrase.name

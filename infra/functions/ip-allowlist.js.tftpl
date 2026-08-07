@@ -1,0 +1,99 @@
+/**
+ * 画面のIP制限（CloudFront Functions・ビューワーリクエスト）。
+ *
+ * 許可リストにないIPからのリクエストを、オリジンに届く前に 403 で返す。
+ * cloudfront-js-2.0 は ES 5.1 相当のため、テンプレートリテラルや let / const は使わない。
+ *
+ * このファイルは Terraform の templatefile() で処理される。
+ * ${allowed_cidrs_json} に許可CIDRの配列が埋め込まれるため、拡張子は .js ではなく .js.tftpl。
+ * 許可IPをこのファイルに直接書かないのは、public リポジトリだから（CLAUDE.md §8-2）。
+ *
+ * 前提: ディストリビューションは is_ipv6_enabled = false。
+ * IPv6 が有効だと event.viewer.ip に IPv6 が入り、IPv4 の許可リストが一致しなくなる
+ * （docs/ip-restriction-verification.md の実測結果・申し送り1）。
+ */
+
+var ALLOWED_CIDRS = ${allowed_cidrs_json};
+
+/**
+ * IPv4 文字列を 0〜4294967295 の数値にする。不正な形式は -1 を返す。
+ *
+ * ビット演算（<< や |）を使わないのは、JavaScript のビット演算が
+ * 32bit 符号付き整数として扱われ、先頭オクテットが 128 以上のアドレスで
+ * 負の値になるため。掛け算なら符号の問題が起きない。
+ */
+function ipToNumber(ip) {
+  var parts = ip.split('.');
+  if (parts.length !== 4) {
+    return -1;
+  }
+
+  var result = 0;
+  for (var i = 0; i < 4; i++) {
+    // 空文字や "1e2" のような表記を弾くため、数字だけで構成されているか先に見る
+    if (!/^[0-9]{1,3}$/.test(parts[i])) {
+      return -1;
+    }
+
+    var octet = parseInt(parts[i], 10);
+    if (octet > 255) {
+      return -1;
+    }
+
+    result = result * 256 + octet;
+  }
+
+  return result;
+}
+
+/**
+ * CIDR に含まれるかを、上位ビットの一致で判定する。
+ * 「プレフィックス長ぶんの上位ビット」を取り出す操作を、2 の冪での割り算で行う。
+ */
+function isInCidr(ipNumber, cidr) {
+  var slash = cidr.indexOf('/');
+  var baseText = slash === -1 ? cidr : cidr.substring(0, slash);
+  var prefixLength = slash === -1 ? 32 : parseInt(cidr.substring(slash + 1), 10);
+
+  var baseNumber = ipToNumber(baseText);
+  if (baseNumber < 0 || isNaN(prefixLength) || prefixLength < 0 || prefixLength > 32) {
+    return false;
+  }
+
+  // /0 は全アドレスに一致する。割り算の前に返しておく
+  if (prefixLength === 0) {
+    return true;
+  }
+
+  var blockSize = Math.pow(2, 32 - prefixLength);
+  return Math.floor(ipNumber / blockSize) === Math.floor(baseNumber / blockSize);
+}
+
+function handler(event) {
+  var ip = event.viewer.ip;
+  var ipNumber = ipToNumber(ip);
+
+  if (ipNumber >= 0) {
+    for (var i = 0; i < ALLOWED_CIDRS.length; i++) {
+      if (isInCidr(ipNumber, ALLOWED_CIDRS[i])) {
+        return event.request;
+      }
+    }
+  }
+
+  /**
+   * 応答にIPも理由も含めない（申し送り5）。
+   * 検証時は切り分けのために "blocked: <IP>" を返していたが、本番で相手に返す必要はない。
+   * CloudFront Functions が生成した 403 かどうかは、レスポンスヘッダーの
+   * x-cache: FunctionGeneratedResponse from cloudfront で判別できる。
+   */
+  return {
+    statusCode: 403,
+    statusDescription: 'Forbidden',
+    headers: {
+      'content-type': { value: 'text/plain; charset=utf-8' },
+      'cache-control': { value: 'no-store' }
+    },
+    body: 'Forbidden'
+  };
+}
