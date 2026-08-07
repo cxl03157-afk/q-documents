@@ -3,6 +3,11 @@
 #
 # terraform.tfvars は .gitignore 済み（*.tfvars）。実値をコミットしない。
 
+# 画面・API へのアクセスを許可するグローバルIP（CIDR）。
+# 単一IPなら "x.x.x.x/32"。社内で運用するときは社内のレンジに差し替える。
+# 自分のグローバルIPは `curl -s https://checkip.amazonaws.com` で確認できる。
+allowed_cidrs = ["203.0.113.0/24"]
+
 # AWS Budgets のアラート送り先
 budget_notification_email = "you@example.com"
 

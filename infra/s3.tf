@@ -7,8 +7,8 @@
  * どちらも Block Public Access を全項目 true にし、直接アクセスさせない（CLAUDE.md §8-5）。
  *
  * **バケットポリシー（OAC からの読み取り許可）はここに書かない。**
- * CloudFront ディストリビューションの ARN を条件に入れる必要があり、
- * そのディストリビューションは 8/7 の公開層で作るため。
+ * CloudFront ディストリビューションの ARN を条件に入れる必要があるため、
+ * ディストリビューションと同じ cloudfront.tf に置いている。
  *
  * **ライフサイクルルールも書かない。**
  * ストレージクラスの割り当て（CLAUDE.md §6）は「最新になったら Standard-IA」
@@ -51,6 +51,37 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+/**
+ * CORS。署名付きURLでブラウザから S3 へ直接 PUT・GET するために要る。
+ *
+ * 許可するのは画面のオリジン（CloudFront のドメイン）だけで、ワイルドカードは使わない
+ * （docs/API.md §補足：セキュリティ）。
+ *
+ * CORS はブラウザ側の制約であって、アクセス制御ではない。
+ * 実際に S3 への操作を許しているのは署名付きURLで、その有効期限は15分以内、
+ * アップロード用は Content-Type とサイズ上限を署名条件に含める（CLAUDE.md §8-3・8-4）。
+ *
+ * ExposeHeaders に ETag を入れているのは、PUT の完了確認にブラウザから読めるようにするため。
+ */
+resource "aws_s3_bucket_cors_configuration" "files" {
+  bucket = aws_s3_bucket.files.id
+
+  /**
+   * POST を含めているのは、アップロードに **presigned POST** を使うため。
+   * CLAUDE.md §8-4 の `content-length-range`（サイズ上限の強制）は
+   * presigned POST のポリシーでしか表現できず、presigned PUT には手段がない。
+   * PUT も残してあるのは、ダウンロード側や単純な差し替えで使う可能性があるため。
+   * 実際にどちらで実装するかは週3の署名付きURLの実装で確定する。
+   */
+  cors_rule {
+    allowed_origins = ["https://${aws_cloudfront_distribution.frontend.domain_name}"]
+    allowed_methods = ["GET", "PUT", "POST", "HEAD"]
+    allowed_headers = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
   }
 }
 

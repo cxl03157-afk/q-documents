@@ -18,6 +18,11 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # Lambda のデプロイパッケージ（zip）を Terraform 側で作るために使う
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.7"
+    }
   }
 
   # bucket / key / region は terraform init -backend-config= で渡す。

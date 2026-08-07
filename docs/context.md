@@ -4,22 +4,25 @@
 
 | 項目 | 値 |
 | --- | --- |
-| 最終更新 | 2026/8/6（週1完了・PR #4 マージまで） |
-| 現在地 | **週1が完了し `main` に入った**（`docs/phase-roadmap.md`）。S-1〜S-7 の7画面と F-06・F-08、モックレビューの反映まで到達。次は Terraform ストレージ層 |
-| 提出期限 | 2026/8/24（残り18日） |
-| 作業ブランチ | `main`（Terraform 用のブランチは未作成） |
-| Issue / PR | #1（PR #2）・**#3（PR #4）ともにマージ済み・クローズ済み**。次の Issue は Terraform 用に発行する |
-| 受け入れ基準の消化 | **1 / 25**（HTTP→HTTPSリダイレクトを検証中に確認。週1分の残り3項目は8/7に確認予定）。モックで動きは確認済みでも、**ハードコードデータのため消化には数えない**。API接続後に数える |
+| 最終更新 | 2026/8/7（Terraform 公開層の apply・画面と API の疎通・社外IP拒否の実測まで） |
+| 現在地 | **インフラが一通り立ち上がった**（`docs/phase-roadmap.md`）。ストレージ層17 + 公開層15 の32リソースを apply 済み。**画面が CloudFront 経由で開き、API が Lambda まで通っている。** 次は週2の本体（型の確定・純粋関数のテスト・CI） |
+| 提出期限 | 2026/8/24（残り17日） |
+| 作業ブランチ | `feature/issue-5-terraform-public`（PR 未作成） |
+| Issue / PR | #1（PR #2）・#3（PR #4）はクローズ済み。**#5 は OPEN**。今日の PR に `Closes #5` を入れて閉じる |
+| 受け入れ基準の消化 | **3 / 25**（HTTP→HTTPSリダイレクト／S3のURL直叩き不可／**社外IPから画面・APIともに到達不可**）。モックで動きは確認済みでも、**ハードコードデータのため消化には数えない**。API接続後に数える |
+| 公開URL | 画面 `https://d34i7uaj7yhneq.cloudfront.net/` ／ API `https://nzkpeswm1j.execute-api.ap-northeast-1.amazonaws.com/prod` |
 
 ---
 
 ## NextAction（次の1アクション）
 
-**Terraform ストレージ層**（S3×2 / DynamoDB×2 / IAM / SSM / Budgets）。
+**8/8 の作業**（`shared/types.ts` の確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**）。
 
-8/6 に繰り越していた2つのうち、**モックのレビューは完了**（下記の決定事項2件を `docs/screens.md` に反映済み）。
-**詳細理解のチェックポイント①**（S-5〜S-7・F-06・F-08）は Terraform を優先して後回しにした。
-①〜④（ロック管理・S-2・S-3・S-4）は 8/3 に実施済み。**週4のチェックポイント②に合流させず、8/7 以降で拾う。**
+その前に、今日ぶんの PR を出して `main` に入れる（`Closes #5`）。
+
+**詳細理解のチェックポイント①**（S-5〜S-7・F-06・F-08）は 8/6・8/7 とも後回しにした。
+①〜④（ロック管理・S-2・S-3・S-4）は 8/3 に実施済み。**週4のチェックポイント②に合流させず、8/8 以降で拾う。**
+インフラが片付いたので、次に持ち越す理由はもう無い。
 
 ---
 
@@ -33,7 +36,7 @@
 | 8/2（日） | **S-2〜S-4**、ロック/解除の状態管理・30分自動ロック |
 | 8/3（月） | **✓ 完了** S-2〜S-7・ロック管理・関連文書パネル・CSV（**モックのレビューと設計反映だけ 8/6 へ繰り越し**） |
 | 8/4・8/5 | **✗ 不在**（可能なら書いたコードの通読のみ。7画面ぶんあるので `shared/` と `auth/` だけでも目を通せると 8/6 が楽になる） |
-| 8/6（木） | **✓ モックレビュー → PR #4 作成・マージ**（理解チェックは後回し）。**Terraform ストレージ層**（S3×2 / DynamoDB×2 / IAM / SSM / Budgets） |
+| 8/6（木） | **✓ 完了** モックレビュー → PR #4 マージ → **Terraform ストレージ層を apply → PR #6 マージ**（理解チェックのみ後回し） |
 | 8/7（金） | **Terraform 公開層**、Hello World疎通、**社外IP拒否の実測**、デプロイスクリプト |
 | 8/8（土） | `shared/types.ts` 確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**（Vitest 導入と同日にまとめる） |
 | 8/9（日） | 合言葉 F-18 |
@@ -90,6 +93,24 @@
 | 8/6 | **絞り込みを `<select multiple>` からチェックボックス群に変更した。** 複数選択プルダウンは Ctrl/⌘＋クリックがないと複数選べず、普通にクリックすると他の選択が消える。PC操作に不慣れな利用者が対象のため使えない。選択肢の枠は高さを固定し、候補が増えたら枠の中だけスクロールさせる。`docs/screens.md` 反映済み |
 | 8/6 | **モックレビューの反映を PR② に統合し、`phase-roadmap.md` の PR③ は発行しない。** 修正が小さく、PRを分ける管理コストのほうが上回るため |
 | 8/6 | **GitHub Actions の CI 作成を 8/8 に回す。** Vitest 導入と同日にまとめると二度手間にならない。それまでの PR はローカルの `npm run build` ＋ Playwright で確認する |
+| 8/6 | **Terraform はモジュール化しない。ルートモジュール1つ・ファイルはリソース種別で分割。** 環境1つ・リージョン1つ・開発者1人で再利用の機会がなく、モジュール化は説明コスト（1リソース追うのに4〜5ファイル往復）が増えるだけで動作が変わらない。同じ構成を繰り返すようになったら再検討する |
+| 8/6 | **state も分割しない**（ストレージ層と公開層で1本）。`apply` は変更のあるリソースしか触らないため。分割すると `terraform_remote_state` の配線と init 2回が要る。8/7 に公開層を作って不安を感じたら、その時点で分割しても遅くない |
+| 8/6 | **保管時暗号化は SSE-S3。KMS の CMK は使わない**（月$1＝1,000円要件の15%）。`bucket_key_enabled` は KMS リクエストを減らす設定で SSE-S3 では無効なため指定しない。**DynamoDB は暗号化を明示しない** — 常時有効で追加費用ゼロ、`enabled = true` は「AWS マネージドキーへの切り替え」を意味し強度は変わらず KMS の課金だけ増える |
+| 8/6 | **合言葉の値は Terraform で扱わない。** variable でも tfvars でも state に平文で残る（CLAUDE.md §8-1）。`ssm.tf` は入れ物だけ作り `ignore_changes = [value]` で保護し、値は `aws ssm put-parameter --overwrite` で投入する |
+| 8/6 | **state のロックは S3 ネイティブロック（`use_lockfile = true`）。** Terraform 1.11 以降の機能で、ロック専用の DynamoDB テーブルが不要になる |
+| 8/6 | **IAM は自作の権限をインラインポリシー（`aws_iam_role_policy`）、ログ出力だけ AWS 管理ポリシーにする。** 自作分は各ロール専用で再利用せず、ロールと一緒に消えるので孤児が出ない。ログ出力は AWS が中身を保守してくれるため管理ポリシーに乗る |
+| 8/7 | **API は CloudFront の後ろに置かず、ブラウザから `execute-api` を直接叩く。** CloudFront を挟むと API Gateway から見た送信元が CloudFront のIPになり、リソースポリシーの `aws:SourceIp` が機能しない。関数側だけで守ると `execute-api` の直叩き経路が空く。**入口ごとに、その入口で塞げる手段で塞ぐ**（CLAUDE.md §7 の再確認）。CORS は Lambda が返す |
+| 8/7 | **API Gateway は `ANY /{proxy+}` の Lambda プロキシ1本にし、パスの振り分けはコード側で行う。** `docs/API.md` の12エンドポイントを個別に書くと Terraform が40リソース近くになり、エンドポイントを足すたびに apply が要る。引き換えに「どのパスが実在するか」は Terraform から読めない（正は `docs/API.md`） |
+| 8/7 | **許可IPは `terraform.tfvars` を単一の正とし、GitHub Secrets からは渡さない。** apply はローカルで実行しているため、Secrets を足すと値が2か所になる。自宅IPが変わって片方だけ更新すると、CI の apply が古いIPに戻して**自分を締め出す**。apply を CI に移すなら、Secrets ではなく SSM を単一の正にする（CLAUDE.md §8-2 が既に許容） |
+| 8/7 | **`allowed_cidrs` に `sensitive = true` を付ける。** 値は関数コードとリソースポリシーに埋まり plan の差分に出る。出力を PR に貼れば公開されるため表示側で塞ぐ。**ただし `data` ソースを経由するとマークが切れる** — API Gateway のポリシーは `sensitive()` で包み直す必要があった（実際に実IPが差分に出て気づいた）。state に平文で残ることは防げない |
+| 8/7 | **`aws_api_gateway_deployment` の `triggers` は data ソースの値を参照する。** リソースの `policy` 属性を参照したら `Provider produced inconsistent final plan` で失敗した。同じ apply でポリシーが更新され、AWS が返す正規化後の JSON が設定の文字列と一致しないため。順序の保証は `depends_on` で明示する |
+| 8/7 | **Lambda の `source_arn` はステージを固定しない（`/*/*`）。** IAM の `*` は `/` を越えるので `/*` と一致範囲は同じ。防いでいるのは「別のAPIから呼ばれること」で、それは `<api-id>` を含む時点で達成済み。ステージまで絞ると、あとでステージを足したときに 500 になり原因が見えにくい |
+| 8/7 | **独自ドメインは取らない。結果として TLS 1.0/1.1 が受け付けられる状態を許容する。** CloudFront はデフォルト証明書だと `minimum_protocol_version` が `TLSv1` に固定、API Gateway の `security_policy` は独自ドメイン専用で設定欄が無い。**実測で両方とも TLS 1.0/1.1 が成立することを確認**（対照: github.com は拒否）。ブラウザ側が話さないため実利用の通信は 1.2/1.3。要件 §5.1-① と受け入れ基準は満たすが、**申し送り6 は未達**として README の「実運用時の課題」に書く |
+| 8/7 | **画面デプロイは `--delete` を使わない。** ハッシュ付きアセットを消すと、画面を開いたままの利用者が次の遷移で 404 を踏む。残っても数十KB |
+| 8/7 | **1年キャッシュ（immutable）の対象は `assets/` だけにする。** `public/` 由来の `favicon.svg` / `icons.svg` はファイル名にハッシュが付かないため、immutable にすると差し替えても既訪問者に最大1年届かない。**`create-invalidation` は CloudFront のキャッシュを消すだけで、ブラウザのキャッシュには効かない**（セルフレビューの指摘） |
+| 8/7 | **Lambda のログ保持は365日にする。** このロググループは「誰がエクセル・旧版を取得したか」の監査記録を兼ねる（CLAUDE.md §8-7・受け入れ基準）。当初の14日では2週間で証跡が消え、記録として機能しない。ログ量は小さくコスト要件に影響しない（セルフレビューの指摘） |
+| 8/7 | **CORS の許可オリジンは Lambda の環境変数で渡す。** ハンドラに直書きすると、ディストリビューションを作り直したときにドメインが変わって追随できない。ワイルドカードは使わず、画面のオリジン1つだけを許可する |
+| 8/7 | **S3 の CORS に `POST` を含める。** `content-length-range`（サイズ上限の強制・CLAUDE.md §8-4）は **presigned POST でしか表現できない**。presigned PUT には手段がない。PUT か POST かの最終判断は週3の署名付きURL実装で行うが、CORS を先に開けておかないとプリフライトで弾かれる（セルフレビューの指摘） |
 
 ---
 
@@ -104,9 +125,17 @@
 | ~~S-1 の検索で無効化マスタをどう扱うか~~ | **8/6 完了**（無効も出す。決定事項を参照） |
 | ~~絞り込みプルダウンの高さ~~ | **8/6 完了**（チェックボックス化で解消。枠の高さを固定した） |
 | ~~Issue #3 の PR~~ | **8/6 完了**（PR #4 マージ済み・Issue #3 クローズ済み） |
-| 詳細理解チェック① | **未実施。** S-5〜S-7・F-06・F-08 が対象（①〜④は 8/3 実施済み）。8/6 は Terraform を優先して後回しにした。**8/7 以降で拾う。週4のチェックポイント②に合流させない** |
+| 詳細理解チェック① | **未実施。** S-5〜S-7・F-06・F-08 が対象（①〜④は 8/3 実施済み）。8/6・8/7 とも Terraform を優先して後回しにした。**8/8 以降で拾う。週4のチェックポイント②に合流させない** |
+| TLS 1.0/1.1 が受け付けられる | 画面（CloudFront）・API（execute-api）とも **TLS 1.0/1.1 で握手が成立する**ことを 8/7 に実測（対照の github.com は拒否）。独自ドメイン + ACM を持たない限り設定箇所が無いため塞げない。**要件 §5.1-① と受け入れ基準は満たす**（HTTPS・HTTP拒否）。ブラウザは 1.2/1.3 でしか話さないので実害は限定的。**週4の README「実運用時の課題」に書く**。`docs/ip-restriction-verification.md` の申し送り6 も更新が要る（文面は提示済み・編集はユーザー） |
+| 画面が API をまだ呼んでいない | 画面はモックデータのまま。`VITE_API_BASE_URL` の受け渡し（`.env.example` / ビルド時の埋め込み）は**週2の API 接続（8/11 前後）で決める**。**CORS の疎通は 8/7 に確認済み**（プリフライト 204・許可オリジン返却）なので、残るのはベースURLの渡し方だけ |
+| Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**8/9 以降に本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない。**CORS の応答（許可オリジン・OPTIONS）は本物のハンドラにも引き継ぐこと** |
+| 署名付きURLは PUT か POST か | `content-length-range` を使うなら presigned POST が必要（PUT には手段がない）。S3 の CORS は POST を先に開けてある。**週3の署名付きURL実装で確定する**（CLAUDE.md §8-4） |
 | CI（GitHub Actions）が無い | `.github/workflows/` 未作成のため、PR にステータスチェックが付かない（`main` のブランチ保護も `required_status_checks: null`）。**8/8 に Vitest 導入と同日に作成する。** それまでは `npm run build` ＋ Playwright をローカルで実行して代替する |
 | モックデータの永続化 | 登録・修正は配列への操作なので**再読込で消える**。週2の API 接続で解消する。手で確認する際は再読込しないこと |
+| 合言葉の値が未設定 | SSM の `/q-documents/passphrase` は入れ物だけ作った状態（値は `PLACEHOLDER_SET_VIA_CLI`）。**F-18 を実装する 8/9 までに** `aws ssm put-parameter --name /q-documents/passphrase --type SecureString --value '<合言葉>' --overwrite` で投入する。`ignore_changes` があるので以降の apply で戻らない |
+| トークンの署名鍵をどうするか | **合言葉そのものを署名鍵にすると、合言葉を変えた瞬間に解除中のセッションが全部切れる**（30分の作業中に突然ロックされる）。鍵を分けるほうが運用しやすい。**8/9 の F-18 実装ゲートで判断する** |
+| ローカルに残す必要があるファイル | `infra/terraform.tfvars`（**許可IP**・メール・予算額）は gitignore 済みで**リポジトリに無い**。消すと再入力が必要。`infra/.terraform/` も残す |
+| 自宅IPが変わると自分が入れなくなる | 許可リストは `terraform.tfvars` の1行。**デモの直前に** `curl -s https://checkip.amazonaws.com` **で確認する**（`docs/ip-restriction-verification.md`）。変わっていたら差し替えて apply（関数の再発行とステージ再デプロイで数分） |
 
 ---
 
@@ -180,3 +209,73 @@ IPリテラルは RFC 5737 のドキュメント用アドレスのみ）。
 
 **分かったこと**: `/code-review` は Claude 側から起動できないコマンドで、差分確認は手作業になる。
 CI が無いため PR にチェックが付かない（`no checks reported`）ことも実際に確認した。
+
+**Terraform ストレージ層を構築し、`main` に入れた。** Issue #5 発行 → PR #6 マージ（`Refs #5` なので Issue は OPEN のまま）。
+
+- state 用バケット `q-documents-tfstate-43e8ad2f` を AWS CLI で作成（バージョニング有効・BPA・SSE-S3）。
+  Terraform では作れないため。手順は `infra/README.md` に残した
+- `infra/` に8ファイル（`main` / `variables` / `s3` / `dynamodb` / `iam` / `ssm` / `budgets` / `outputs`）＋
+  `README.md` ＋ `terraform.tfvars.example`。**`fmt` / `validate` / `plan` / `apply` すべて成功（17 added）**
+- 作成: S3 `q-documents-files-0662035f` / `q-documents-frontend-0662035f`、
+  DynamoDB `q-documents-ledger` / `q-documents-masters`、
+  IAM `q-documents-api-role` / `q-documents-async-role`、SSM `/q-documents/passphrase`、Budgets 6USD
+- apply 後に AWS 側で実測: **BPA 全4項目 true**／台帳のキーが `shared/types.ts` と一致／PITR ENABLED／
+  **S3 の直接アクセスが HTTP 403**（受け入れ基準1項目を前倒しで消化）
+
+**レビューで指摘を受けて直した2件**（どちらも指摘がなければそのまま入っていた）
+1. **`bucket_key_enabled` は SSE-S3 では無効。** KMS リクエストを減らす設定で、KMS を呼ばない SSE-S3 では効果がない。
+   設定とコメントを削除。設計ドキュメント3か所（`tech-stack.md`・`要件定義書.md`・`構成図.drawio`）も確認し、そちらに誤りがないことを確認した
+2. **`aws_iam_role_policy`（インライン）と管理ポリシーの使い分けの理由が読み取れなかった。** 冒頭コメントに追記
+
+**副産物**: 要件に「DynamoDB は保管時暗号化を有効にする」とあるのに `dynamodb.tf` に記述が無く、
+「実装し忘れ」に見える状態だった。**書かないほうが要件を安く満たす**理由をコメントと README に明記した。
+
+### 8/7
+**Terraform 公開層を構築し、画面と API が動く状態になった。** ブランチ `feature/issue-5-terraform-public`。
+
+- `infra/` に4ファイル追加（`cloudfront.tf` / `apigateway.tf` / `lambda.tf` / `functions/ip-allowlist.js.tftpl`）、
+  `variables.tf`・`s3.tf`・`outputs.tf`・`main.tf` に追記。**15リソースを apply**
+- `backend/hello/index.mjs`（疎通用の暫定ハンドラ）と `scripts/deploy-frontend.sh` を新設
+- **CloudFront Functions の IP 判定を CIDR 照合で実装**（申し送り4）。ビット演算を避けて掛け算・割り算で書いた
+  — JavaScript のビット演算は32bit符号付きで、先頭オクテットが128以上のIPが負になるため
+- 許可CIDRは `templatefile` で関数コードに注入。リポジトリには載らない
+
+**実測（自IP）**: 画面 200 / アセット 200 / API 200（Lambda の JSON）/ HTTP は 301 でリダイレクト
+**実測（テザリング＝社外）**: 画面 403（`x-cache: FunctionGeneratedResponse`・本文9バイト、IPは返さない）/ API 403
+→ **受け入れ基準「社外のIPアドレスからは画面・APIともにアクセスできない」を消化**（3/25）
+
+**TLS を実測した。** 画面・API とも **TLS 1.0/1.1 で握手が成立**する（対照の github.com は拒否）。
+最初の測定は誤りで、`openssl` が握手失敗時にも `SSL-Session:` に試行バージョンを表示するため、
+`Protocol :` を成功判定に使えていなかった。**暗号スイートの有無で判定し直し、拒否する対照相手を用意して確定させた。**
+
+**つまずいた2件**
+1. **`terraform apply` がプロバイダのエラーで途中停止**（`Provider produced inconsistent final plan`）。
+   `aws_api_gateway_deployment` の `triggers` にリソースの `policy` 属性を入れたのが原因。
+   data ソースの値を参照し、`depends_on` で順序を明示して解消。**関数とポリシーは更新済み・ステージ未反映という中途状態になった**
+   （画面だけ先に通り、API は 403 のまま。切り分けは応答ヘッダーの `server` で付いた）
+2. **`sensitive = true` が API Gateway のポリシーに効いていなかった。** `data` ソースを経由するとマークが切れる。
+   plan の差分に実IPが出て気づき、`sensitive()` で包み直した。**CloudFront Function 側（`templatefile` 経由）は効いていた**
+
+**コンピューティング使用率は 41 / 100**（検証時の完全一致版は 6）。上限には余裕があるが、許可レンジを増やすときは再確認する。
+
+**セルフレビュー（`/code-review`）で6件の指摘を受け、すべて反映した。**
+今日の実測結果（403 / 200 / デプロイ）を覆すものは無かったが、4件は後日ハマる種類のものだった。
+
+| # | 指摘 | 何が起きるはずだったか |
+| --- | --- | --- |
+| 1 | `infra/README.md` が未更新 | 手順どおりにセットアップすると**許可IPが例のまま apply が成功し、自分が 403 になる**。`sensitive` のため plan にも値が出ず原因が見えない |
+| 2 | 暫定ハンドラが CORS を返さない | `apigateway.tf` のコメントと実装が食い違っていた。curl は通るがブラウザからは全滅で、8/11 に顕在化する |
+| 3 | `compress` 未指定 | JS 43KB が非圧縮で配信される。`Managed-CachingOptimized` は `Accept-Encoding` をキャッシュキーに入れるだけで、圧縮の有効化はビヘイビア側 |
+| 4 | ハッシュの付かないファイルに1年 immutable | 差し替えても既訪問者に最大1年届かない。invalidation はブラウザキャッシュに効かない |
+| 5 | CORS に POST が無い | `content-length-range` を使う presigned POST がプリフライトで弾かれる |
+| 6 | ログ保持14日 | 監査記録が2週間で消える |
+
+**#2 は「コメントを直すだけ」ではなく、暫定ハンドラに CORS を実装する側を選んだ。**
+`ANY /{proxy+}` が OPTIONS も Lambda に流すかは今日決めた設計の前提で、
+別の OPTIONS 統合が要るなら 8/11 ではなく今日知りたかったため。
+**実測の結果 204 と許可ヘッダーが返り、別統合は不要と確定した。**
+
+修正後の実測: gzip 有効（`content-encoding: gzip`）／プリフライト 204 ＋ `access-control-allow-origin`
+／通常の GET 200 ＋ CORS ヘッダー／画面 200。
+既にアップロード済みだった `favicon.svg` / `icons.svg` は `aws s3 cp --metadata-directive REPLACE` で
+ヘッダーだけ差し替えた（`aws s3 sync` は中身が同じファイルを再送しないため、スクリプトを直しただけでは変わらない）。
