@@ -7,8 +7,8 @@
 | 最終更新 | 2026/8/7（Terraform 公開層の apply・画面と API の疎通・社外IP拒否の実測まで） |
 | 現在地 | **インフラが一通り立ち上がった**（`docs/phase-roadmap.md`）。ストレージ層17 + 公開層15 の32リソースを apply 済み。**画面が CloudFront 経由で開き、API が Lambda まで通っている。** 次は週2の本体（型の確定・純粋関数のテスト・CI） |
 | 提出期限 | 2026/8/24（残り17日） |
-| 作業ブランチ | `feature/issue-5-terraform-public`（PR 未作成） |
-| Issue / PR | #1（PR #2）・#3（PR #4）はクローズ済み。**#5 は OPEN**。今日の PR に `Closes #5` を入れて閉じる |
+| 作業ブランチ | `main`（PR #7 マージ済み・ローカル/リモートとも作業ブランチは削除済み。8/8 用のブランチは未作成） |
+| Issue / PR | #1（PR #2）・#3（PR #4）・**#5（PR #6・#7）すべてクローズ済み**。8/8 の作業は **#8（PR #9）** |
 | 受け入れ基準の消化 | **3 / 25**（HTTP→HTTPSリダイレクト／S3のURL直叩き不可／**社外IPから画面・APIともに到達不可**）。モックで動きは確認済みでも、**ハードコードデータのため消化には数えない**。API接続後に数える |
 | 公開URL | 画面 `https://d34i7uaj7yhneq.cloudfront.net/` ／ API `https://nzkpeswm1j.execute-api.ap-northeast-1.amazonaws.com/prod` |
 
@@ -18,7 +18,10 @@
 
 **8/8 の作業**（`shared/types.ts` の確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**）。
 
-その前に、今日ぶんの PR を出して `main` に入れる（`Closes #5`）。
+`shared/documentNo.ts` と `shared/uploadFiles.ts` は 8/3 にモック用として実装済みで、**テストがまだ無い**。
+週2の残り（採番・マスタ・一覧のAPI接続）がこの2ファイルに依存するため、先に固める。
+CI を同日にまとめるのは、Vitest を入れた直後なら `npm run lint / test / build` を一度に組めるため
+（**必須ステータスチェックの設定もここで行う**。`main` のブランチ保護は `required_status_checks: null` のまま）。
 
 **詳細理解のチェックポイント①**（S-5〜S-7・F-06・F-08）は 8/6・8/7 とも後回しにした。
 ①〜④（ロック管理・S-2・S-3・S-4）は 8/3 に実施済み。**週4のチェックポイント②に合流させず、8/8 以降で拾う。**
@@ -37,7 +40,7 @@
 | 8/3（月） | **✓ 完了** S-2〜S-7・ロック管理・関連文書パネル・CSV（**モックのレビューと設計反映だけ 8/6 へ繰り越し**） |
 | 8/4・8/5 | **✗ 不在**（可能なら書いたコードの通読のみ。7画面ぶんあるので `shared/` と `auth/` だけでも目を通せると 8/6 が楽になる） |
 | 8/6（木） | **✓ 完了** モックレビュー → PR #4 マージ → **Terraform ストレージ層を apply → PR #6 マージ**（理解チェックのみ後回し） |
-| 8/7（金） | **Terraform 公開層**、Hello World疎通、**社外IP拒否の実測**、デプロイスクリプト |
+| 8/7（金） | **✓ 完了** Terraform 公開層 → 疎通 → **社外IP拒否の実測** → デプロイスクリプト → `/code-review` の指摘6件を反映 → PR #7 マージ |
 | 8/8（土） | `shared/types.ts` 確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**（Vitest 導入と同日にまとめる） |
 | 8/9（日） | 合言葉 F-18 |
 | 8/10（月） | 採番 F-02 / F-07 / F-03 |
@@ -129,6 +132,7 @@
 | TLS 1.0/1.1 が受け付けられる | 画面（CloudFront）・API（execute-api）とも **TLS 1.0/1.1 で握手が成立する**ことを 8/7 に実測（対照の github.com は拒否）。独自ドメイン + ACM を持たない限り設定箇所が無いため塞げない。**要件 §5.1-① と受け入れ基準は満たす**（HTTPS・HTTP拒否）。ブラウザは 1.2/1.3 でしか話さないので実害は限定的。**週4の README「実運用時の課題」に書く**。`docs/ip-restriction-verification.md` の申し送り6 も更新が要る（文面は提示済み・編集はユーザー） |
 | 画面が API をまだ呼んでいない | 画面はモックデータのまま。`VITE_API_BASE_URL` の受け渡し（`.env.example` / ビルド時の埋め込み）は**週2の API 接続（8/11 前後）で決める**。**CORS の疎通は 8/7 に確認済み**（プリフライト 204・許可オリジン返却）なので、残るのはベースURLの渡し方だけ |
 | Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**8/9 以降に本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない。**CORS の応答（許可オリジン・OPTIONS）は本物のハンドラにも引き継ぐこと** |
+| `shared/*.test.ts` が `frontend/tsconfig.json` の `exclude` で除外されている | **応急対応（8/8）。** リポジトリルートに `node_modules` が無く、`shared/` は frontend の外にあるため `tsc` から `vitest` の型が解決できない。`npm run build` のチェック対象からテストファイルを外し、正しさは Vitest の実行で担保している。**8/9以降に `backend/` が TypeScript プロジェクトとして立ち上がったら、`shared/` を2つのプロジェクトが使う状態が現実になる。そのタイミングで npm workspaces 化（ルート `package.json` に `workspaces: ["frontend", "backend"]`）を検討し、根本対応する** |
 | 署名付きURLは PUT か POST か | `content-length-range` を使うなら presigned POST が必要（PUT には手段がない）。S3 の CORS は POST を先に開けてある。**週3の署名付きURL実装で確定する**（CLAUDE.md §8-4） |
 | CI（GitHub Actions）が無い | `.github/workflows/` 未作成のため、PR にステータスチェックが付かない（`main` のブランチ保護も `required_status_checks: null`）。**8/8 に Vitest 導入と同日に作成する。** それまでは `npm run build` ＋ Playwright をローカルで実行して代替する |
 | モックデータの永続化 | 登録・修正は配列への操作なので**再読込で消える**。週2の API 接続で解消する。手で確認する際は再読込しないこと |
