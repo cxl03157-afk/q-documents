@@ -103,7 +103,8 @@ function confirmPage(doc: DocumentRecord, newRevision: string, newDocumentNo: st
   const process =
     doc.processNo === undefined
       ? ''
-      : `<p>工程：${escapeHtml(doc.processNo)}　${escapeHtml(doc.processName ?? '')}</p>`;
+      : // eslint-disable-next-line no-irregular-whitespace -- 全角スペース（表示上の区切り）
+        `<p>工程：${escapeHtml(doc.processNo)}　${escapeHtml(doc.processName ?? '')}</p>`;
 
   return `
     <h1>リビジョンアップ</h1>

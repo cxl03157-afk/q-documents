@@ -3,7 +3,7 @@
     "target": "es2023",
     "module": "esnext",
     "lib": ["ES2023", "DOM"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 
@@ -21,5 +21,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "../shared"]
+  "include": ["src", "../shared", "vite.config.ts"],
+  // shared/*.test.ts は frontend/node_modules から見て親を跨ぐため vitest の型解決ができない
+  // （応急対応。8/9以降のbackend着手時にnpm workspaces化を検討し、根本対応する）。
+  // テストの正しさは Vitest の実行（アサーションの成否）で担保する。
+  "exclude": ["src/**/*.test.ts", "../shared/**/*.test.ts"]
 }
