@@ -22,8 +22,9 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "../shared", "vite.config.ts"],
-  // shared/*.test.ts は frontend/node_modules から見て親を跨ぐため vitest の型解決ができない
-  // （応急対応。8/9以降のbackend着手時にnpm workspaces化を検討し、根本対応する）。
+  // shared/*.test.ts のみ除外する。frontend/node_modules から見て親を跨ぐため vitest の型解決が
+  // できない（応急対応。詳細は docs/context.md の未解決事項を参照。backend着手時にnpm workspaces化で
+  // 根本対応する）。src/ にはこの問題がないので対象外にしない。
   // テストの正しさは Vitest の実行（アサーションの成否）で担保する。
-  "exclude": ["src/**/*.test.ts", "../shared/**/*.test.ts"]
+  "exclude": ["../shared/**/*.test.ts"]
 }

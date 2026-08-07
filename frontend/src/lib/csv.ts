@@ -29,7 +29,6 @@ export function toCsv(headers: string[], rows: string[][]): string {
  * 文字化けする。利用者は現場の担当者で、ダブルクリックで開けないと使えない。
  */
 export function downloadCsv(fileName: string, csv: string): void {
-  // eslint-disable-next-line no-irregular-whitespace -- BOM文字そのもの（Excelでの文字化け対策）
   const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
 
