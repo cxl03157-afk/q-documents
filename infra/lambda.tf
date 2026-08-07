@@ -1,13 +1,11 @@
 /**
  * 同期API の Lambda。
  *
- * 今日入れるのは疎通確認用の Hello World（backend/hello/index.mjs）で、
- * 8/9 以降に本物のハンドラへ差し替える。**関数とロググループはそのまま使う。**
- * 先に器を作っておくと、差し替えのときに変わるのがコードだけになる。
+ * 中身は backend/ の TypeScript を esbuild で1ファイルにまとめたもの。
+ * 疎通確認用の Hello World（backend/hello/index.mjs）から差し替えた。
+ * **関数・ロググループ・実行ロールは作ったときのまま使っている**（変わったのはコードだけ）。
  *
- * 実行ロールは iam.tf の同期API用（台帳・マスタ・S3・SSM）をそのまま使う。
- * Hello World には過剰な権限だが、今日のためだけにロールを作ると
- * 差し替え時に権限の付け替えが要る。
+ * 実行ロールは iam.tf の同期API用（台帳・マスタ・S3・SSM）。
  *
  * 非同期Lambda（S3イベント）はここに書かない。S3 通知の設定とセットで週3に作る。
  */
@@ -15,12 +13,19 @@
 /**
  * zip は Terraform 側で作る。
  * source_code_hash に zip の中身のハッシュを入れておくと、
- * index.mjs を編集しただけで apply が更新を検知する。
+ * バンドルを作り直しただけで apply が更新を検知する。
+ *
+ * **参照先はビルド成果物なので、apply の前に `npm run build` が必要。**
+ * dist/ は .gitignore の対象でリポジトリには入らない。ビルドせずに plan を実行すると
+ * 「ファイルが無い」というエラーで止まる（手順は infra/README.md）。
+ *
+ * TypeScript のソースを直接 zip にしない理由は、Lambda が TypeScript を実行できないため。
+ * esbuild が1ファイルの .mjs にまとめ、AWS SDK はランタイム同梱のものを使う（--external）。
  */
-data "archive_file" "hello" {
+data "archive_file" "api" {
   type        = "zip"
-  source_file = "${path.module}/../backend/hello/index.mjs"
-  output_path = "${path.module}/build/hello.zip"
+  source_file = "${path.module}/../backend/dist/index.mjs"
+  output_path = "${path.module}/build/api.zip"
 }
 
 /**
@@ -44,14 +49,14 @@ resource "aws_cloudwatch_log_group" "api" {
 
 resource "aws_lambda_function" "api" {
   function_name = "q-documents-api"
-  description   = "Synchronous API handler (placeholder: hello world)"
+  description   = "Synchronous API handler"
   role          = aws_iam_role.api.arn
 
   runtime = "nodejs22.x"
   handler = "index.handler"
 
-  filename         = data.archive_file.hello.output_path
-  source_code_hash = data.archive_file.hello.output_base64sha256
+  filename         = data.archive_file.api.output_path
+  source_code_hash = data.archive_file.api.output_base64sha256
 
   # 署名付きURLの発行と DynamoDB の読み書きが主な処理。長時間の処理はない
   timeout     = 10

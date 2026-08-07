@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "esnext",
+    "lib": ["ES2023"],
+    // DOM を入れない。ここは Lambda（Node）で動くコードで、fetch や window は使わない。
+    // 入れておくと、ブラウザ専用の API を書いてしまっても型検査を通過してしまう。
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    /* Bundler mode — 実際のバンドルは esbuild が行う。tsc は型検査だけ（noEmit） */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* Linting — frontend と同じ強さに揃える */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  // shared/ を含めるのは frontend と同じ理由。文書番号のパースやファイル名検証は
+  // 画面とサーバーの両方で使い、型と実装を二重に持たない（CLAUDE.md §7）。
+  "include": ["src", "../shared"]
+}

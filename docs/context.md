@@ -4,11 +4,11 @@
 
 | 項目 | 値 |
 | --- | --- |
-| 最終更新 | 2026/8/7（Terraform 公開層の apply・画面と API の疎通・社外IP拒否の実測まで） |
-| 現在地 | **インフラが一通り立ち上がった**（`docs/phase-roadmap.md`）。ストレージ層17 + 公開層15 の32リソースを apply 済み。**画面が CloudFront 経由で開き、API が Lambda まで通っている。** 次は週2の本体（型の確定・純粋関数のテスト・CI） |
+| 最終更新 | 2026/8/7（`shared/types.ts` の確認・文書番号パースのVitest・ESLint・GitHub Actions CI の整備まで） |
+| 現在地 | **週2の基礎（型・テスト・CI）が完了した**（`docs/phase-roadmap.md`）。`shared/` の純粋関数がVitestで固まり、`main` に必須ステータスチェックが付いた。**予定より1日前倒しで、次は合言葉（F-18）** |
 | 提出期限 | 2026/8/24（残り17日） |
-| 作業ブランチ | `main`（PR #7 マージ済み・ローカル/リモートとも作業ブランチは削除済み。8/8 用のブランチは未作成） |
-| Issue / PR | #1（PR #2）・#3（PR #4）・**#5（PR #6・#7）すべてクローズ済み**。8/8 の作業は **#8（PR #9）** |
+| 作業ブランチ | `main`（PR #9 マージ済み・ローカル/リモートとも作業ブランチは削除済み。F-18 用のブランチは未作成） |
+| Issue / PR | #1（PR #2）・#3（PR #4）・#5（PR #6・#7）・**#8（PR #9）すべてクローズ済み** |
 | 受け入れ基準の消化 | **3 / 25**（HTTP→HTTPSリダイレクト／S3のURL直叩き不可／**社外IPから画面・APIともに到達不可**）。モックで動きは確認済みでも、**ハードコードデータのため消化には数えない**。API接続後に数える |
 | 公開URL | 画面 `https://d34i7uaj7yhneq.cloudfront.net/` ／ API `https://nzkpeswm1j.execute-api.ap-northeast-1.amazonaws.com/prod` |
 
@@ -16,16 +16,13 @@
 
 ## NextAction（次の1アクション）
 
-**8/8 の作業**（`shared/types.ts` の確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**）。
-
-`shared/documentNo.ts` と `shared/uploadFiles.ts` は 8/3 にモック用として実装済みで、**テストがまだ無い**。
-週2の残り（採番・マスタ・一覧のAPI接続）がこの2ファイルに依存するため、先に固める。
-CI を同日にまとめるのは、Vitest を入れた直後なら `npm run lint / test / build` を一度に組めるため
-（**必須ステータスチェックの設定もここで行う**。`main` のブランチ保護は `required_status_checks: null` のまま）。
+**合言葉 F-18**（8/9 の予定作業を 8/7 に前倒し）。`POST /auth/unlock`（SSMから読み出して検証・トークン発行）と
+フロント側の解除画面 S-2・sessionStorage保持・30分の自動ロック・「終了」ボタンの結線。
+SSM の `/q-documents/passphrase` は入れ物だけの状態（`PLACEHOLDER_SET_VIA_CLI`）なので、
+実装前に `aws ssm put-parameter --overwrite` で値を投入する。
 
 **詳細理解のチェックポイント①**（S-5〜S-7・F-06・F-08）は 8/6・8/7 とも後回しにした。
-①〜④（ロック管理・S-2・S-3・S-4）は 8/3 に実施済み。**週4のチェックポイント②に合流させず、8/8 以降で拾う。**
-インフラが片付いたので、次に持ち越す理由はもう無い。
+①〜④（ロック管理・S-2・S-3・S-4）は 8/3 に実施済み。**週4のチェックポイント②に合流させず、拾えるタイミングで拾う。**
 
 ---
 
@@ -40,9 +37,9 @@ CI を同日にまとめるのは、Vitest を入れた直後なら `npm run lin
 | 8/3（月） | **✓ 完了** S-2〜S-7・ロック管理・関連文書パネル・CSV（**モックのレビューと設計反映だけ 8/6 へ繰り越し**） |
 | 8/4・8/5 | **✗ 不在**（可能なら書いたコードの通読のみ。7画面ぶんあるので `shared/` と `auth/` だけでも目を通せると 8/6 が楽になる） |
 | 8/6（木） | **✓ 完了** モックレビュー → PR #4 マージ → **Terraform ストレージ層を apply → PR #6 マージ**（理解チェックのみ後回し） |
-| 8/7（金） | **✓ 完了** Terraform 公開層 → 疎通 → **社外IP拒否の実測** → デプロイスクリプト → `/code-review` の指摘6件を反映 → PR #7 マージ |
-| 8/8（土） | `shared/types.ts` 確定、文書番号パースの純粋関数＋Vitest、**GitHub Actions の CI 作成**（Vitest 導入と同日にまとめる） |
-| 8/9（日） | 合言葉 F-18 |
+| 8/7（金） | **✓ 完了** Terraform 公開層 → 疎通 → **社外IP拒否の実測** → デプロイスクリプト → PR #7 マージ。**さらに 8/8 の予定分も前倒しで完了**（下記） |
+| 8/8（土） | **✓ 8/7 に前倒しで完了** `shared/types.ts` 確定 → 文書番号パースの純粋関数＋Vitest → ESLint導入 → **GitHub Actions の CI 作成** → PR #9 マージ |
+| 8/9（日） | 合言葉 F-18（**8/7 に着手**） |
 | 8/10（月） | 採番 F-02 / F-07 / F-03 |
 | 8/11（火） | マスタCRUD F-10、一覧API接続 F-05 |
 | 8/12（水） | 署名付きURL・S3イベントの試作 |
@@ -114,6 +111,11 @@ CI を同日にまとめるのは、Vitest を入れた直後なら `npm run lin
 | 8/7 | **Lambda のログ保持は365日にする。** このロググループは「誰がエクセル・旧版を取得したか」の監査記録を兼ねる（CLAUDE.md §8-7・受け入れ基準）。当初の14日では2週間で証跡が消え、記録として機能しない。ログ量は小さくコスト要件に影響しない（セルフレビューの指摘） |
 | 8/7 | **CORS の許可オリジンは Lambda の環境変数で渡す。** ハンドラに直書きすると、ディストリビューションを作り直したときにドメインが変わって追随できない。ワイルドカードは使わず、画面のオリジン1つだけを許可する |
 | 8/7 | **S3 の CORS に `POST` を含める。** `content-length-range`（サイズ上限の強制・CLAUDE.md §8-4）は **presigned POST でしか表現できない**。presigned PUT には手段がない。PUT か POST かの最終判断は週3の署名付きURL実装で行うが、CORS を先に開けておかないとプリフライトで弾かれる（セルフレビューの指摘） |
+| 8/7 | **`shared/types.ts` は変更不要と確定。** `DynamoDBテーブル設計.md`・`API.md` と突き合わせ、frontend全体の import も過不足なしと確認した。APIリクエスト/レスポンス用の型は各エンドポイント実装時（F-18 以降）に仕様と一緒に確定する方針とし、先回りしない |
+| 8/7 | **`shared/*.test.ts` は `tsc` の型チェック対象から除外する（応急対応）。** リポジトリルートに `node_modules` が無く、`shared/` が frontend の外にあるため vitest の型が frontend の `tsc` から解決できない。テストの正しさは Vitest の実行で担保する。**backend 着手時に npm workspaces化を検討し根本対応する**（`shared/` が2つのプロジェクトから使われる状態が現実になったタイミングで判断する） |
+| 8/7 | **ESLint の対象は `frontend/src` のみとし、`shared/` は対象外にする。** ESLint 9以降の flat config は設定ファイルの置き場所より外側を lint 対象にできない制約（`basePath`）があり、`shared/` は frontend の外にあるため対象にできない。ルートに config を置くと今度は `eslint` パッケージ自体を解決できない（tsc/vitestと同じ構造の問題）。同じく workspaces化まで保留 |
+| 8/7 | **CI の必須チェックはパスフィルタを付けず全PRで実行する。** CLAUDE.md「必須チェックは速くて価値が高いもの」に該当し、フロントの lint/test/build は軽量なため常時実行してよいと判断した |
+| 8/7 | **`no-irregular-whitespace` ルールは `skipTemplates: true` で運用する。** BOM文字・全角スペースなど意図的な文字がテンプレートリテラル内に今後も出てくる想定のため、個別に `eslint-disable` コメントを書く運用ではなく、テンプレートリテラルの中身だけをルール対象から外す設定にした（セルフレビューの過程で判明） |
 
 ---
 
@@ -128,16 +130,17 @@ CI を同日にまとめるのは、Vitest を入れた直後なら `npm run lin
 | ~~S-1 の検索で無効化マスタをどう扱うか~~ | **8/6 完了**（無効も出す。決定事項を参照） |
 | ~~絞り込みプルダウンの高さ~~ | **8/6 完了**（チェックボックス化で解消。枠の高さを固定した） |
 | ~~Issue #3 の PR~~ | **8/6 完了**（PR #4 マージ済み・Issue #3 クローズ済み） |
-| 詳細理解チェック① | **未実施。** S-5〜S-7・F-06・F-08 が対象（①〜④は 8/3 実施済み）。8/6・8/7 とも Terraform を優先して後回しにした。**8/8 以降で拾う。週4のチェックポイント②に合流させない** |
+| 詳細理解チェック① | **未実施。** S-5〜S-7・F-06・F-08 が対象（①〜④は 8/3 実施済み）。8/6・8/7 とも Terraform を優先して後回しにした。**拾えるタイミングで拾う。週4のチェックポイント②に合流させない** |
 | TLS 1.0/1.1 が受け付けられる | 画面（CloudFront）・API（execute-api）とも **TLS 1.0/1.1 で握手が成立する**ことを 8/7 に実測（対照の github.com は拒否）。独自ドメイン + ACM を持たない限り設定箇所が無いため塞げない。**要件 §5.1-① と受け入れ基準は満たす**（HTTPS・HTTP拒否）。ブラウザは 1.2/1.3 でしか話さないので実害は限定的。**週4の README「実運用時の課題」に書く**。`docs/ip-restriction-verification.md` の申し送り6 も更新が要る（文面は提示済み・編集はユーザー） |
 | 画面が API をまだ呼んでいない | 画面はモックデータのまま。`VITE_API_BASE_URL` の受け渡し（`.env.example` / ビルド時の埋め込み）は**週2の API 接続（8/11 前後）で決める**。**CORS の疎通は 8/7 に確認済み**（プリフライト 204・許可オリジン返却）なので、残るのはベースURLの渡し方だけ |
-| Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**8/9 以降に本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない。**CORS の応答（許可オリジン・OPTIONS）は本物のハンドラにも引き継ぐこと** |
-| `shared/*.test.ts` が `frontend/tsconfig.json` の `exclude` で除外されている | **応急対応（8/8）。** リポジトリルートに `node_modules` が無く、`shared/` は frontend の外にあるため `tsc` から `vitest` の型が解決できない。`npm run build` のチェック対象からテストファイルを外し、正しさは Vitest の実行で担保している。**8/9以降に `backend/` が TypeScript プロジェクトとして立ち上がったら、`shared/` を2つのプロジェクトが使う状態が現実になる。そのタイミングで npm workspaces 化（ルート `package.json` に `workspaces: ["frontend", "backend"]`）を検討し、根本対応する** |
+| Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**F-18 の実装（8/7）で本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない。**CORS の応答（許可オリジン・OPTIONS）は本物のハンドラにも引き継ぐこと** |
+| `shared/*.test.ts` が `frontend/tsconfig.json` の `exclude` で除外されている | **応急対応（8/7）。** リポジトリルートに `node_modules` が無く、`shared/` は frontend の外にあるため `tsc` から `vitest` の型が解決できない。`npm run build` のチェック対象からテストファイルを外し、正しさは Vitest の実行で担保している。**F-18 の実装で `backend/` が TypeScript プロジェクトとして立ち上がるので、`shared/` を2つのプロジェクトが使う状態が現実になる。そのタイミングで npm workspaces 化（ルート `package.json` に `workspaces: ["frontend", "backend"]`）を検討し、根本対応する** |
 | 署名付きURLは PUT か POST か | `content-length-range` を使うなら presigned POST が必要（PUT には手段がない）。S3 の CORS は POST を先に開けてある。**週3の署名付きURL実装で確定する**（CLAUDE.md §8-4） |
-| CI（GitHub Actions）が無い | `.github/workflows/` 未作成のため、PR にステータスチェックが付かない（`main` のブランチ保護も `required_status_checks: null`）。**8/8 に Vitest 導入と同日に作成する。** それまでは `npm run build` ＋ Playwright をローカルで実行して代替する |
+| ~~CI（GitHub Actions）が無い~~ | **8/7 完了。** `.github/workflows/ci.yml` を作成（lint → test → build）、`main` のブランチ保護に `required_status_checks`（`frontend (lint / test / build)`）を設定した |
+| `shared/` が ESLint の対象外 | `"lint": "eslint src"` は `frontend/src` のみが対象。ESLint 9以降の flat config は設定ファイルの置き場所より外側を lint 対象にできない制約（`basePath`）があり、`shared/` はその外にある。ルートに config を置くと `eslint` パッケージ自体が解決できない（tsc/vitestと同根の問題）。**backend 着手時（8/7）の npm workspaces化と合わせて根本対応する** |
 | モックデータの永続化 | 登録・修正は配列への操作なので**再読込で消える**。週2の API 接続で解消する。手で確認する際は再読込しないこと |
-| 合言葉の値が未設定 | SSM の `/q-documents/passphrase` は入れ物だけ作った状態（値は `PLACEHOLDER_SET_VIA_CLI`）。**F-18 を実装する 8/9 までに** `aws ssm put-parameter --name /q-documents/passphrase --type SecureString --value '<合言葉>' --overwrite` で投入する。`ignore_changes` があるので以降の apply で戻らない |
-| トークンの署名鍵をどうするか | **合言葉そのものを署名鍵にすると、合言葉を変えた瞬間に解除中のセッションが全部切れる**（30分の作業中に突然ロックされる）。鍵を分けるほうが運用しやすい。**8/9 の F-18 実装ゲートで判断する** |
+| 合言葉の値が未設定 | SSM の `/q-documents/passphrase` は入れ物だけ作った状態（値は `PLACEHOLDER_SET_VIA_CLI`）。**F-18 を実装する前に** `aws ssm put-parameter --name /q-documents/passphrase --type SecureString --value '<合言葉>' --overwrite` で投入する。`ignore_changes` があるので以降の apply で戻らない |
+| トークンの署名鍵をどうするか | **合言葉そのものを署名鍵にすると、合言葉を変えた瞬間に解除中のセッションが全部切れる**（30分の作業中に突然ロックされる）。鍵を分けるほうが運用しやすい。**F-18 の実装ゲートで判断する** |
 | ローカルに残す必要があるファイル | `infra/terraform.tfvars`（**許可IP**・メール・予算額）は gitignore 済みで**リポジトリに無い**。消すと再入力が必要。`infra/.terraform/` も残す |
 | 自宅IPが変わると自分が入れなくなる | 許可リストは `terraform.tfvars` の1行。**デモの直前に** `curl -s https://checkip.amazonaws.com` **で確認する**（`docs/ip-restriction-verification.md`）。変わっていたら差し替えて apply（関数の再発行とステージ再デプロイで数分） |
 
@@ -283,3 +286,33 @@ CI が無いため PR にチェックが付かない（`no checks reported`）�
 ／通常の GET 200 ＋ CORS ヘッダー／画面 200。
 既にアップロード済みだった `favicon.svg` / `icons.svg` は `aws s3 cp --metadata-directive REPLACE` で
 ヘッダーだけ差し替えた（`aws s3 sync` は中身が同じファイルを再送しないため、スクリプトを直しただけでは変わらない）。
+
+### 8/7（続き・8/8 の予定分を前倒し）
+**週2の基礎（型・テスト・CI）が完了した。** Issue #8 発行 → ブランチ `feature/issue-8-types-and-test-ci` → PR #9 マージ。
+
+- `shared/types.ts` を設計ドキュメント（`DynamoDBテーブル設計.md`・`API.md`）と突き合わせ、**変更不要と確認**
+- `shared/documentNo.test.ts`（13ケース）・`shared/uploadFiles.test.ts`（9ケース）を Vitest で新規作成。
+  対象は採番・パース・SK組み立て・2桁ゼロ埋め・ファイル名検証（CLAUDE.md「テストを書く範囲」1）。
+  **工程名に `_` を含むケース**（末尾から切るパース方式の根拠）を重点的に確認した
+- frontend に vitest・ESLint（typescript-eslint recommended）を導入、`.github/workflows/ci.yml` を新規作成
+  （lint → test → build）、`main` のブランチ保護に必須ステータスチェックを設定
+
+**セルフレビュー（`/code-review`）で、8種のバックグラウンドエージェントから指摘を受けた。**
+`/code-review` はユーザー側のローカルコマンドとして起動され、進捗通知だけがこちらに届く構成だったため、
+届いた指摘をこちらで検証・重複排除してから対応した（4件反映・6件は見送り）。
+
+| # | 指摘 | 対応 |
+| --- | --- | --- |
+| 1 | `vite.config.ts` の `/// <reference types="node" />` が不要 | **反映**（実際に外して `tsc --noEmit` が通ることを検証した） |
+| 2 | `tsconfig.json` の `exclude` に根拠のない `src/**/*.test.ts` が含まれている（3エージェントが指摘） | **反映**（`../shared/**/*.test.ts` のみに絞った） |
+| 3 | `docs/context.md` の Issue/PR 欄が Issue #8 発行前の記述のまま | **反映**（見落とし。実際に発行済みだった） |
+| 4 | `no-irregular-whitespace` の個別 `eslint-disable` 2箇所 | **反映**（`skipTemplates: true` に統合。実際に動くことを検証した） |
+| 5 | `shared/` が lint 対象外（4エージェントが指摘） | 見送り（既知のトレードオフ。未解決に記載） |
+| 6 | `tsconfig` の exclude が型チェックの安全網を失わせている | 見送り（同上。workspaces化まで保留） |
+| 7 | 同根の問題が3箇所（tsconfig/vite.config/eslint.config）に分散パッチされている | 見送り（同上） |
+| 8 | CI: lint/test/buildの並列化・push/pull_requestの二重実行・concurrency未設定 | 見送り（正しさに影響しない効率化。個人開発規模では実害小） |
+| 9 | テスト対象globが `vite.config.ts` と `tsconfig.json` に重複している | 見送り（別ツール設定の無理な共通化は複雑さが増す） |
+| 10 | `vite.config.ts` が `vitest` パッケージに依存するようになった | 見送り（現状のCI/デプロイはdevDependencies込みでインストールしており実害なし） |
+
+**#1 は検証してみて実際に指摘のとおりだった。** `tsconfig.json` の `types` は明示的 `import` の型解決を
+制限しないため、`/// <reference types="node" />` を追加した当初の判断は誤りだった。

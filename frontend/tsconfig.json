@@ -21,10 +21,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "../shared", "vite.config.ts"],
-  // shared/*.test.ts のみ除外する。frontend/node_modules から見て親を跨ぐため vitest の型解決が
-  // できない（応急対応。詳細は docs/context.md の未解決事項を参照。backend着手時にnpm workspaces化で
-  // 根本対応する）。src/ にはこの問題がないので対象外にしない。
-  // テストの正しさは Vitest の実行（アサーションの成否）で担保する。
-  "exclude": ["../shared/**/*.test.ts"]
+  // shared/*.test.ts の除外は npm workspaces 化で不要になった。
+  // node_modules がリポジトリルートに1つになり、shared/ からも vitest の型が解決できる
+  // （Node のモジュール解決は見つかるまで親方向に node_modules を遡るため）。
+  "include": ["src", "../shared", "vite.config.ts"]
 }
