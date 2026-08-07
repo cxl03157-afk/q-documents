@@ -69,9 +69,16 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "files" {
 resource "aws_s3_bucket_cors_configuration" "files" {
   bucket = aws_s3_bucket.files.id
 
+  /**
+   * POST を含めているのは、アップロードに **presigned POST** を使うため。
+   * CLAUDE.md §8-4 の `content-length-range`（サイズ上限の強制）は
+   * presigned POST のポリシーでしか表現できず、presigned PUT には手段がない。
+   * PUT も残してあるのは、ダウンロード側や単純な差し替えで使う可能性があるため。
+   * 実際にどちらで実装するかは週3の署名付きURLの実装で確定する。
+   */
   cors_rule {
     allowed_origins = ["https://${aws_cloudfront_distribution.frontend.domain_name}"]
-    allowed_methods = ["GET", "PUT", "HEAD"]
+    allowed_methods = ["GET", "PUT", "POST", "HEAD"]
     allowed_headers = ["*"]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000

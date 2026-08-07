@@ -95,6 +95,14 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods = ["GET", "HEAD"]
     cached_methods  = ["GET", "HEAD"]
 
+    /**
+     * gzip / brotli で配信する。**既定は false なので明示が要る。**
+     * Managed-CachingOptimized は Accept-Encoding をキャッシュキーに含めるだけで、
+     * 圧縮そのものを有効にはしない。指定しないと JS 43KB が非圧縮のまま流れる
+     * （gzip なら 11.65KB）。
+     */
+    compress = true
+
     cache_policy_id = data.aws_cloudfront_cache_policy.caching_optimized.id
 
     function_association {

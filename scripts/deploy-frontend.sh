@@ -44,15 +44,21 @@ echo "    ディストリビュー: ${DISTRIBUTION_ID}"
 # 画面を開いたままの利用者が次の遷移で 404 を踏む。
 # 残っても数十KBなので、増えすぎたときに手で消せばよい。
 
-echo "==> dryrun（アセット）"
-aws s3 sync "${DIST_DIR}" "s3://${BUCKET}" \
-  --exclude "index.html" \
+#
+# 1年キャッシュにしてよいのは assets/ だけ。
+# **ファイル名にビルドのハッシュが入るものに限る。**
+# public/ 由来の favicon.svg や icons.svg はハッシュが付かないため、
+# immutable にすると差し替えても既訪問者に最大1年届かない。
+# create-invalidation は CloudFront のキャッシュを消すだけで、ブラウザには効かない。
+
+echo "==> dryrun（assets/ = ハッシュ付き・1年キャッシュ）"
+aws s3 sync "${DIST_DIR}/assets" "s3://${BUCKET}/assets" \
   --cache-control "public, max-age=31536000, immutable" \
   --dryrun
 
-echo "==> dryrun（index.html）"
+echo "==> dryrun（その他 = index.html・favicon など・no-cache）"
 aws s3 sync "${DIST_DIR}" "s3://${BUCKET}" \
-  --exclude "*" --include "index.html" \
+  --exclude "assets/*" \
   --cache-control "no-cache" \
   --dryrun
 
@@ -64,21 +70,16 @@ fi
 
 # --- 4. 本実行 --------------------------------------------------------------
 #
-# アセットを先、index.html を後に置く。
+# assets/ を先、index.html を含む残りを後に置く。
 # 逆順だと、新しい index.html がまだ存在しないアセットを参照する瞬間ができる。
-#
-# アセットのファイル名にはビルドのハッシュが入るため、1年キャッシュさせてよい。
-# index.html だけは no-cache にする。ここが古いままだと、
-# キャッシュ削除が終わるまで新しいアセットに切り替わらない。
 
-echo "==> アップロード（アセット）"
-aws s3 sync "${DIST_DIR}" "s3://${BUCKET}" \
-  --exclude "index.html" \
+echo "==> アップロード（assets/）"
+aws s3 sync "${DIST_DIR}/assets" "s3://${BUCKET}/assets" \
   --cache-control "public, max-age=31536000, immutable"
 
-echo "==> アップロード（index.html）"
+echo "==> アップロード（その他）"
 aws s3 sync "${DIST_DIR}" "s3://${BUCKET}" \
-  --exclude "*" --include "index.html" \
+  --exclude "assets/*" \
   --cache-control "no-cache"
 
 # --- 5. キャッシュ削除 --------------------------------------------------------

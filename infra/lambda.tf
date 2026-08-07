@@ -31,10 +31,15 @@ data "archive_file" "hello" {
  * 先に作っておけば保持期間を指定できる。
  *
  * 名前は /aws/lambda/<関数名> でなければ Lambda が別のグループを作ってしまう。
+ *
+ * **保持期間を1年にしているのは、このグループが監査記録を兼ねるため。**
+ * エクセル・旧版の取得時に氏名・文書番号・ファイル種別・日時を書く（CLAUDE.md §8-7）。
+ * 2週間で消えると「誰が持ち出したか」を後から追えず、記録として機能しない。
+ * ログ量はごく小さいので、伸ばしてもコスト要件には影響しない。
  */
 resource "aws_cloudwatch_log_group" "api" {
   name              = "/aws/lambda/q-documents-api"
-  retention_in_days = 14
+  retention_in_days = 365
 }
 
 resource "aws_lambda_function" "api" {
@@ -51,6 +56,21 @@ resource "aws_lambda_function" "api" {
   # 署名付きURLの発行と DynamoDB の読み書きが主な処理。長時間の処理はない
   timeout     = 10
   memory_size = 256
+
+  /**
+   * CORS の許可オリジンを環境変数で渡す。
+   *
+   * 画面と API はドメインが違う（CloudFront と execute-api）ため、
+   * ブラウザからの呼び出しはすべてクロスオリジンになる。許可するのは画面のオリジンだけで、
+   * ワイルドカードは使わない（docs/API.md §補足：セキュリティ）。
+   *
+   * ハンドラに直書きしないのは、ディストリビューションを作り直すとドメインが変わるため。
+   */
+  environment {
+    variables = {
+      ALLOWED_ORIGIN = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+    }
+  }
 
   # ロググループを先に作らせる。関数が先だと Lambda 側が保持期間なしで作ってしまう
   depends_on = [aws_cloudwatch_log_group.api]
