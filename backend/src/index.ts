@@ -12,6 +12,7 @@
 
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import { errorResponse, preflightResponse } from './http';
+import { postUnlock } from './routes/unlock';
 
 /** ヘッダー名の大文字小文字は API Gateway が正規化しないため、両方を見る */
 function requestOrigin(event: APIGatewayProxyEvent): string {
@@ -40,6 +41,28 @@ export const handler = async (
     return preflightResponse(origin);
   }
 
-  // エンドポイントは順次ここへ足していく（F-18 の POST /auth/unlock が最初）。
-  return errorResponse(origin, 404, '該当するエンドポイントがありません');
+  try {
+    // エンドポイントは順次ここへ足していく。正は docs/API.md。
+    if (method === 'POST' && path === '/auth/unlock') {
+      return await postUnlock(origin, event.body);
+    }
+
+    return errorResponse(origin, 404, '該当するエンドポイントがありません');
+  } catch (error) {
+    /**
+     * 例外の中身はクライアントへ返さない。SSM パラメータ名やテーブル名が
+     * エラーメッセージに載ることがあり、構成の手がかりになる。
+     * 調査に要る情報はログにだけ書く（このロググループは1年保持・CLAUDE.md §8-7）。
+     */
+    console.error(
+      JSON.stringify({
+        message: 'unhandled error',
+        method,
+        path,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+    );
+    return errorResponse(origin, 500, 'サーバー側でエラーが発生しました');
+  }
 };
