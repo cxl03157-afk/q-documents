@@ -106,7 +106,11 @@
 | 8/7 | **`aws_api_gateway_deployment` の `triggers` は data ソースの値を参照する。** リソースの `policy` 属性を参照したら `Provider produced inconsistent final plan` で失敗した。同じ apply でポリシーが更新され、AWS が返す正規化後の JSON が設定の文字列と一致しないため。順序の保証は `depends_on` で明示する |
 | 8/7 | **Lambda の `source_arn` はステージを固定しない（`/*/*`）。** IAM の `*` は `/` を越えるので `/*` と一致範囲は同じ。防いでいるのは「別のAPIから呼ばれること」で、それは `<api-id>` を含む時点で達成済み。ステージまで絞ると、あとでステージを足したときに 500 になり原因が見えにくい |
 | 8/7 | **独自ドメインは取らない。結果として TLS 1.0/1.1 が受け付けられる状態を許容する。** CloudFront はデフォルト証明書だと `minimum_protocol_version` が `TLSv1` に固定、API Gateway の `security_policy` は独自ドメイン専用で設定欄が無い。**実測で両方とも TLS 1.0/1.1 が成立することを確認**（対照: github.com は拒否）。ブラウザ側が話さないため実利用の通信は 1.2/1.3。要件 §5.1-① と受け入れ基準は満たすが、**申し送り6 は未達**として README の「実運用時の課題」に書く |
-| 8/7 | **画面デプロイは `--delete` を使わない。** ハッシュ付きアセットを消すと、画面を開いたままの利用者が次の遷移で 404 を踏む。残っても数十KB。アセットは1年キャッシュ、`index.html` だけ `no-cache` で置く |
+| 8/7 | **画面デプロイは `--delete` を使わない。** ハッシュ付きアセットを消すと、画面を開いたままの利用者が次の遷移で 404 を踏む。残っても数十KB |
+| 8/7 | **1年キャッシュ（immutable）の対象は `assets/` だけにする。** `public/` 由来の `favicon.svg` / `icons.svg` はファイル名にハッシュが付かないため、immutable にすると差し替えても既訪問者に最大1年届かない。**`create-invalidation` は CloudFront のキャッシュを消すだけで、ブラウザのキャッシュには効かない**（セルフレビューの指摘） |
+| 8/7 | **Lambda のログ保持は365日にする。** このロググループは「誰がエクセル・旧版を取得したか」の監査記録を兼ねる（CLAUDE.md §8-7・受け入れ基準）。当初の14日では2週間で証跡が消え、記録として機能しない。ログ量は小さくコスト要件に影響しない（セルフレビューの指摘） |
+| 8/7 | **CORS の許可オリジンは Lambda の環境変数で渡す。** ハンドラに直書きすると、ディストリビューションを作り直したときにドメインが変わって追随できない。ワイルドカードは使わず、画面のオリジン1つだけを許可する |
+| 8/7 | **S3 の CORS に `POST` を含める。** `content-length-range`（サイズ上限の強制・CLAUDE.md §8-4）は **presigned POST でしか表現できない**。presigned PUT には手段がない。PUT か POST かの最終判断は週3の署名付きURL実装で行うが、CORS を先に開けておかないとプリフライトで弾かれる（セルフレビューの指摘） |
 
 ---
 
@@ -123,8 +127,9 @@
 | ~~Issue #3 の PR~~ | **8/6 完了**（PR #4 マージ済み・Issue #3 クローズ済み） |
 | 詳細理解チェック① | **未実施。** S-5〜S-7・F-06・F-08 が対象（①〜④は 8/3 実施済み）。8/6・8/7 とも Terraform を優先して後回しにした。**8/8 以降で拾う。週4のチェックポイント②に合流させない** |
 | TLS 1.0/1.1 が受け付けられる | 画面（CloudFront）・API（execute-api）とも **TLS 1.0/1.1 で握手が成立する**ことを 8/7 に実測（対照の github.com は拒否）。独自ドメイン + ACM を持たない限り設定箇所が無いため塞げない。**要件 §5.1-① と受け入れ基準は満たす**（HTTPS・HTTP拒否）。ブラウザは 1.2/1.3 でしか話さないので実害は限定的。**週4の README「実運用時の課題」に書く**。`docs/ip-restriction-verification.md` の申し送り6 も更新が要る（文面は提示済み・編集はユーザー） |
-| 画面が API をまだ呼んでいない | 画面はモックデータのまま。`VITE_API_BASE_URL` の受け渡し（`.env.example` / ビルド時の埋め込み）は**週2の API 接続（8/11 前後）で決める**。API 側の CORS 応答も Lambda 実装と同時 |
-| Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**8/9 以降に本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない |
+| 画面が API をまだ呼んでいない | 画面はモックデータのまま。`VITE_API_BASE_URL` の受け渡し（`.env.example` / ビルド時の埋め込み）は**週2の API 接続（8/11 前後）で決める**。**CORS の疎通は 8/7 に確認済み**（プリフライト 204・許可オリジン返却）なので、残るのはベースURLの渡し方だけ |
+| Hello World Lambda が残っている | `backend/hello/index.mjs` は疎通確認用の暫定。**8/9 以降に本物の同期API（TypeScript + esbuild）へ差し替えて消す。** 応答に `sourceIp` を含めているので、そのまま本番には持ち込まない。**CORS の応答（許可オリジン・OPTIONS）は本物のハンドラにも引き継ぐこと** |
+| 署名付きURLは PUT か POST か | `content-length-range` を使うなら presigned POST が必要（PUT には手段がない）。S3 の CORS は POST を先に開けてある。**週3の署名付きURL実装で確定する**（CLAUDE.md §8-4） |
 | CI（GitHub Actions）が無い | `.github/workflows/` 未作成のため、PR にステータスチェックが付かない（`main` のブランチ保護も `required_status_checks: null`）。**8/8 に Vitest 導入と同日に作成する。** それまでは `npm run build` ＋ Playwright をローカルで実行して代替する |
 | モックデータの永続化 | 登録・修正は配列への操作なので**再読込で消える**。週2の API 接続で解消する。手で確認する際は再読込しないこと |
 | 合言葉の値が未設定 | SSM の `/q-documents/passphrase` は入れ物だけ作った状態（値は `PLACEHOLDER_SET_VIA_CLI`）。**F-18 を実装する 8/9 までに** `aws ssm put-parameter --name /q-documents/passphrase --type SecureString --value '<合言葉>' --overwrite` で投入する。`ignore_changes` があるので以降の apply で戻らない |
@@ -252,3 +257,25 @@ CI が無いため PR にチェックが付かない（`no checks reported`）�
    plan の差分に実IPが出て気づき、`sensitive()` で包み直した。**CloudFront Function 側（`templatefile` 経由）は効いていた**
 
 **コンピューティング使用率は 41 / 100**（検証時の完全一致版は 6）。上限には余裕があるが、許可レンジを増やすときは再確認する。
+
+**セルフレビュー（`/code-review`）で6件の指摘を受け、すべて反映した。**
+今日の実測結果（403 / 200 / デプロイ）を覆すものは無かったが、4件は後日ハマる種類のものだった。
+
+| # | 指摘 | 何が起きるはずだったか |
+| --- | --- | --- |
+| 1 | `infra/README.md` が未更新 | 手順どおりにセットアップすると**許可IPが例のまま apply が成功し、自分が 403 になる**。`sensitive` のため plan にも値が出ず原因が見えない |
+| 2 | 暫定ハンドラが CORS を返さない | `apigateway.tf` のコメントと実装が食い違っていた。curl は通るがブラウザからは全滅で、8/11 に顕在化する |
+| 3 | `compress` 未指定 | JS 43KB が非圧縮で配信される。`Managed-CachingOptimized` は `Accept-Encoding` をキャッシュキーに入れるだけで、圧縮の有効化はビヘイビア側 |
+| 4 | ハッシュの付かないファイルに1年 immutable | 差し替えても既訪問者に最大1年届かない。invalidation はブラウザキャッシュに効かない |
+| 5 | CORS に POST が無い | `content-length-range` を使う presigned POST がプリフライトで弾かれる |
+| 6 | ログ保持14日 | 監査記録が2週間で消える |
+
+**#2 は「コメントを直すだけ」ではなく、暫定ハンドラに CORS を実装する側を選んだ。**
+`ANY /{proxy+}` が OPTIONS も Lambda に流すかは今日決めた設計の前提で、
+別の OPTIONS 統合が要るなら 8/11 ではなく今日知りたかったため。
+**実測の結果 204 と許可ヘッダーが返り、別統合は不要と確定した。**
+
+修正後の実測: gzip 有効（`content-encoding: gzip`）／プリフライト 204 ＋ `access-control-allow-origin`
+／通常の GET 200 ＋ CORS ヘッダー／画面 200。
+既にアップロード済みだった `favicon.svg` / `icons.svg` は `aws s3 cp --metadata-directive REPLACE` で
+ヘッダーだけ差し替えた（`aws s3 sync` は中身が同じファイルを再送しないため、スクリプトを直しただけでは変わらない）。
