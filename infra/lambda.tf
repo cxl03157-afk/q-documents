@@ -63,17 +63,30 @@ resource "aws_lambda_function" "api" {
   memory_size = 256
 
   /**
-   * CORS の許可オリジンを環境変数で渡す。
+   * ハンドラに直書きせず環境変数で渡す。
    *
-   * 画面と API はドメインが違う（CloudFront と execute-api）ため、
-   * ブラウザからの呼び出しはすべてクロスオリジンになる。許可するのは画面のオリジンだけで、
-   * ワイルドカードは使わない（docs/API.md §補足：セキュリティ）。
+   * ALLOWED_ORIGIN — 画面と API はドメインが違う（CloudFront と execute-api）ため、
+   *   ブラウザからの呼び出しはすべてクロスオリジンになる。許可するのは画面のオリジンだけで、
+   *   ワイルドカードは使わない（docs/API.md §補足：セキュリティ）。
+   *   直書きしないのは、ディストリビューションを作り直すとドメインが変わるため。
    *
-   * ハンドラに直書きしないのは、ディストリビューションを作り直すとドメインが変わるため。
+   * **秘密の値そのものはここに置かない。** Lambda の環境変数はコンソールから平文で見え、
+   * Terraform state にも残る（CLAUDE.md §8-1）。渡すのは SSM の**パラメータ名**だけで、
+   * 値は実行時に SSM から読む。
+   *
+   * TOKEN_TTL_SECONDS — 合言葉トークンの有効期間。2時間。
+   *   画面側の「30分の無操作で自動ロック」とは目的が違うので同じ値にしない。
+   *     画面側 = 席を立った隙に使われないための離席対策
+   *     ここ   = 盗まれたトークンが使われ続けないための上限
+   *   同じ30分にすると、30分続けて操作している最中に切れてしまう。
    */
   environment {
     variables = {
-      ALLOWED_ORIGIN = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+      ALLOWED_ORIGIN     = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+      MASTERS_TABLE      = aws_dynamodb_table.masters.name
+      PASSPHRASE_PARAM   = aws_ssm_parameter.passphrase.name
+      TOKEN_SECRET_PARAM = aws_ssm_parameter.token_secret.name
+      TOKEN_TTL_SECONDS  = "7200"
     }
   }
 

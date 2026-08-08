@@ -94,11 +94,14 @@ data "aws_iam_policy_document" "api" {
     resources = ["${aws_s3_bucket.files.arn}/*"]
   }
 
-  # 合言葉の読み出し（F-18）
+  # 合言葉とトークン署名鍵の読み出し（F-18）。この2つ以外は読めない
   statement {
-    sid       = "ReadPassphrase"
-    actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.passphrase.arn]
+    sid     = "ReadUnlockSecrets"
+    actions = ["ssm:GetParameter"]
+    resources = [
+      aws_ssm_parameter.passphrase.arn,
+      aws_ssm_parameter.token_secret.arn,
+    ]
   }
 
   /**
