@@ -117,6 +117,20 @@ describe('verifyToken', () => {
     expect(result).toEqual({ ok: false, reason: 'malformed' });
   });
 
+  it.each([
+    ['exp が小数', { n: '山田太郎', iat: 1754_654_400, exp: 1754_661_600.5 }],
+    ['exp が文字列', { n: '山田太郎', iat: 1754_654_400, exp: '1754661600' }],
+    ['iat が NaN', { n: '山田太郎', iat: Number.NaN, exp: 1754_661_600 }],
+    ['氏名が空', { n: '', iat: 1754_654_400, exp: 1754_661_600 }],
+  ])('署名が正しくても epoch 秒として不正なペイロードを拒否する: %s', (_label, payload) => {
+    // 鍵が漏れた場合や、自前で作ったトークンに想定外の値が混ざった場合を想定する。
+    // iat / exp は epoch 秒なので整数以外は受け付けない
+    const payloadPart = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+
+    const result = verifyToken(SECRET, `${payloadPart}.${signWith(SECRET, payloadPart)}`, NOW);
+    expect(result).toEqual({ ok: false, reason: 'malformed' });
+  });
+
   it('必須項目が欠けたペイロードを拒否する', () => {
     // 正しい鍵で署名した「氏名が無い」ペイロード。署名は通るが中身で弾く
     const payloadPart = Buffer.from(

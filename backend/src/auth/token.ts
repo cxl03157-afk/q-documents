@@ -56,16 +56,18 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+/**
+ * ペイロードの検証。
+ *
+ * `iat` / `exp` は epoch 秒なので整数以外は受け付けない。
+ * `Number.isInteger` は型変換をせず（`'5'` は false）、NaN と Infinity も false になるので、
+ * これ1つで「数値であること・有限であること・整数であること」を満たせる。
+ */
 function isTokenPayload(value: unknown): value is TokenPayload {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.n === 'string' &&
-    v.n !== '' &&
-    typeof v.iat === 'number' &&
-    Number.isFinite(v.iat) &&
-    typeof v.exp === 'number' &&
-    Number.isFinite(v.exp)
+    typeof v.n === 'string' && v.n !== '' && Number.isInteger(v.iat) && Number.isInteger(v.exp)
   );
 }
 
