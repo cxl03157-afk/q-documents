@@ -13,28 +13,36 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INFRA_DIR="${REPO_ROOT}/infra"
 DIST_DIR="${REPO_ROOT}/frontend/dist"
 
-# --- 1. ビルド --------------------------------------------------------------
-#
-# lint / test だけでは型エラーを検出できない（CLAUDE.md §10）。
-# デプロイの直前に必ずビルドを通す。
-
-echo "==> ビルド"
-(cd "${REPO_ROOT}/frontend" && npm run build)
-
-if [ ! -f "${DIST_DIR}/index.html" ]; then
-  echo "エラー: ${DIST_DIR}/index.html がない。ビルドに失敗している" >&2
-  exit 1
-fi
-
-# --- 2. 配置先を Terraform から取る ------------------------------------------
+# --- 1. 配置先と API のURLを Terraform から取る -------------------------------
 
 echo "==> 配置先の確認"
 BUCKET="$(terraform -chdir="${INFRA_DIR}" output -raw frontend_bucket_name)"
 DISTRIBUTION_ID="$(terraform -chdir="${INFRA_DIR}" output -raw cloudfront_distribution_id)"
 DOMAIN="$(terraform -chdir="${INFRA_DIR}" output -raw cloudfront_domain_name)"
+API_BASE_URL="$(terraform -chdir="${INFRA_DIR}" output -raw api_invoke_url)"
 
 echo "    バケット      : ${BUCKET}"
 echo "    ディストリビュー: ${DISTRIBUTION_ID}"
+echo "    API           : ${API_BASE_URL}"
+
+# --- 2. ビルド --------------------------------------------------------------
+#
+# lint / test だけでは型エラーを検出できない（CLAUDE.md §10）。
+# デプロイの直前に必ずビルドを通す。
+#
+# **VITE_API_BASE_URL はビルド時に画面へ埋め込まれる。**
+# 個人の .env.local に頼ると、値が手元にしか無く、間違った API を指したまま
+# デプロイしても気づけない。バケット名やディストリビューションIDと同じく
+# Terraform の出力を正とする（控えを持たない）。
+# .env.local はローカル開発（npm run dev）用に残す。
+
+echo "==> ビルド"
+(cd "${REPO_ROOT}/frontend" && VITE_API_BASE_URL="${API_BASE_URL}" npm run build)
+
+if [ ! -f "${DIST_DIR}/index.html" ]; then
+  echo "エラー: ${DIST_DIR}/index.html がない。ビルドに失敗している" >&2
+  exit 1
+fi
 
 # --- 3. dryrun で差分を見せる ------------------------------------------------
 #

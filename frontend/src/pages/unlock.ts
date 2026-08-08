@@ -2,13 +2,20 @@
  * S-2 生産技術モード解除（screens.md §5）。
  *
  * 氏名を記録し、合言葉を検証して書き込み・エクセル閲覧を解放する。
- * 週2で `POST /auth/unlock` に接続する（今は mock/unlock.ts と照合している）。
+ *
+ * **検証はサーバーが正**（CLAUDE.md §7）。この画面は入力を集めて送るだけで、
+ * 合言葉と照合するコードをここには持たない。
+ *
+ * 氏名の選択肢はまだモックのマスタから作っている。`GET /masters` の接続は F-10 で行う。
  */
 
 import { isUnlocked, startSession } from '../auth/session';
+import { apiPost } from '../lib/api';
 import { escapeHtml } from '../lib/html';
 import { mockMasters } from '../mock/masters';
-import { mockUnlock } from '../mock/unlock';
+
+/** POST /auth/unlock の成功応答（docs/API.md） */
+type UnlockResponse = { token: string; expiresAt: string };
 
 export function renderUnlock(): void {
   const app = document.querySelector<HTMLElement>('#app');
@@ -58,21 +65,51 @@ function bindEvents(app: HTMLElement): void {
   const form = app.querySelector<HTMLFormElement>('#unlock-form');
   if (!form) return;
 
+  const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+
   form.addEventListener('submit', (event) => {
     event.preventDefault();
 
     const userName = fieldValue(form, 'userName');
     const passphrase = fieldValue(form, 'passphrase');
-    const result = mockUnlock(userName, passphrase);
 
-    if (result.ok) {
-      startSession(userName, result.token);
-      location.hash = '#/';
-      return;
-    }
+    // 応答を待つ間にもう一度押せると、同じ解除が二重に走る
+    setSubmitting(submit, true);
+    clearError(app);
 
-    showError(app, form);
+    void apiPost<UnlockResponse>('/auth/unlock', { userName, passphrase })
+      .then((result) => {
+        if (result.ok) {
+          startSession(userName, result.data.token, Date.parse(result.data.expiresAt));
+          location.hash = '#/';
+          return;
+        }
+
+        /**
+         * 401 と、それ以外を分ける。
+         *
+         * 通信断のときに「合言葉が違います」と出すと、利用者は合言葉を疑って
+         * 何度も打ち直す。原因の違うものを同じ文言にしない。
+         * **401 のときだけは、氏名と合言葉のどちらが誤りかを示さない**（screens.md S-2）。
+         */
+        showError(app, form, result.status === 401 ? UNLOCK_ERROR : result.message);
+      })
+      .finally(() => setSubmitting(submit, false));
   });
+}
+
+/** どちらが誤りかは示さない。氏名の当たりを教えると総当たりの手がかりになる */
+const UNLOCK_ERROR = '氏名または合言葉が違います';
+
+function setSubmitting(button: HTMLButtonElement | null, submitting: boolean): void {
+  if (!button) return;
+  button.disabled = submitting;
+  button.textContent = submitting ? '確認中…' : '解除';
+}
+
+function clearError(app: HTMLElement): void {
+  const error = app.querySelector<HTMLElement>('#unlock-error');
+  if (error) error.textContent = '';
 }
 
 function fieldValue(form: HTMLFormElement, name: string): string {
@@ -83,13 +120,9 @@ function fieldValue(form: HTMLFormElement, name: string): string {
   return '';
 }
 
-/**
- * どちらが誤りかは示さない（screens.md S-2）。
- * 氏名の当たりを教えると総当たりの手がかりになる。
- */
-function showError(app: HTMLElement, form: HTMLFormElement): void {
+function showError(app: HTMLElement, form: HTMLFormElement, message: string): void {
   const error = app.querySelector<HTMLElement>('#unlock-error');
-  if (error) error.textContent = '氏名または合言葉が違います';
+  if (error) error.textContent = message;
 
   const passphrase = form.elements.namedItem('passphrase');
   if (passphrase instanceof HTMLInputElement) {
