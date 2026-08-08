@@ -67,7 +67,7 @@ function bindEvents(app: HTMLElement): void {
 
   const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     const userName = fieldValue(form, 'userName');
@@ -77,24 +77,27 @@ function bindEvents(app: HTMLElement): void {
     setSubmitting(submit, true);
     clearError(app);
 
-    void apiPost<UnlockResponse>('/auth/unlock', { userName, passphrase })
-      .then((result) => {
-        if (result.ok) {
-          startSession(userName, result.data.token, Date.parse(result.data.expiresAt));
-          location.hash = '#/';
-          return;
-        }
+    try {
+      const result = await apiPost<UnlockResponse>('/auth/unlock', { userName, passphrase });
 
-        /**
-         * 401 と、それ以外を分ける。
-         *
-         * 通信断のときに「合言葉が違います」と出すと、利用者は合言葉を疑って
-         * 何度も打ち直す。原因の違うものを同じ文言にしない。
-         * **401 のときだけは、氏名と合言葉のどちらが誤りかを示さない**（screens.md S-2）。
-         */
-        showError(app, form, result.status === 401 ? UNLOCK_ERROR : result.message);
-      })
-      .finally(() => setSubmitting(submit, false));
+      if (result.ok) {
+        startSession(userName, result.data.token, Date.parse(result.data.expiresAt));
+        location.hash = '#/';
+        return;
+      }
+
+      /**
+       * 401 と、それ以外を分ける。
+       *
+       * 通信断のときに「合言葉が違います」と出すと、利用者は合言葉を疑って
+       * 何度も打ち直す。原因の違うものを同じ文言にしない。
+       * **401 のときだけは、氏名と合言葉のどちらが誤りかを示さない**（screens.md S-2）。
+       */
+      showError(app, form, result.status === 401 ? UNLOCK_ERROR : result.message);
+    } finally {
+      // 成功して画面を離れる場合も通る。描き直しで消えた要素に書いても害はない
+      setSubmitting(submit, false);
+    }
   });
 }
 
