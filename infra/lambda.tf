@@ -86,6 +86,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       ALLOWED_ORIGIN     = "https://${aws_cloudfront_distribution.frontend.domain_name}"
       MASTERS_TABLE      = aws_dynamodb_table.masters.name
+      LEDGER_TABLE       = aws_dynamodb_table.ledger.name
       PASSPHRASE_PARAM   = aws_ssm_parameter.passphrase.name
       TOKEN_SECRET_PARAM = aws_ssm_parameter.token_secret.name
       TOKEN_TTL_SECONDS  = "7200"
