@@ -8,7 +8,13 @@
  * Rev100（3桁リビジョン）は境界値として除外する（8/8 の合意）。
  */
 import { describe, expect, it } from 'vitest';
-import { buildDocumentNo, buildSortKey, nextRevision, parseDocumentNo } from './documentNo';
+import {
+  buildDocumentNo,
+  buildSortKey,
+  nextRevision,
+  parseDocumentNo,
+  revisionPrefix,
+} from './documentNo';
 
 describe('buildDocumentNo', () => {
   it('製品単位: 文書種類_製品コード_Rev を組み立てる', () => {
@@ -93,6 +99,34 @@ describe('buildSortKey', () => {
 
   it('不正な文書番号では null', () => {
     expect(buildSortKey('Q001_P-0001')).toBeNull();
+  });
+});
+
+describe('revisionPrefix', () => {
+  it('文書IDの直後に # を付ける', () => {
+    expect(revisionPrefix('Q001_P-0001')).toBe('Q001_P-0001#');
+  });
+
+  /**
+   * **このテストが prefix に `#` を含める理由そのもの。**
+   *
+   * `#` を付けずに前方一致で引くと、工程1 の照会が 工程10 まで拾う。
+   * 拾うと採番の重複チェックが「別の工程に文書があるから発行できない」と
+   * 誤って拒否する。実際の照合は DynamoDB の begins_with が行うので、
+   * ここでは同じ判定を文字列で再現して確認する。
+   */
+  it('工程1 の前方一致が 工程10 を拾わない', () => {
+    const prefix = revisionPrefix('P-0001_K001_工程1');
+
+    expect('P-0001_K001_工程1#01'.startsWith(prefix)).toBe(true);
+    expect('P-0001_K001_工程10#01'.startsWith(prefix)).toBe(false);
+  });
+
+  it('工程名にアンダースコアを含む文書IDでも他を拾わない', () => {
+    const prefix = revisionPrefix('P-0001_K002_組立_仮');
+
+    expect('P-0001_K002_組立_仮#02'.startsWith(prefix)).toBe(true);
+    expect('P-0001_K002_組立_仮組み#01'.startsWith(prefix)).toBe(false);
   });
 });
 
