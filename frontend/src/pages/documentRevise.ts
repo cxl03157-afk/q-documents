@@ -121,6 +121,12 @@ function confirmPage(doc: DocumentRecord, newRevision: string, newDocumentNo: st
           <select name="owner" required>
             ${ownerOptions(doc.owner)}
           </select>
+          ${
+            isOwnerSelectable(doc.owner)
+              ? ''
+              : // 理由を出さないと、なぜ既定値が入っていないのか分からない
+                `<span class="form-note">現行の担当者（${escapeHtml(doc.owner)}）は無効化されています。担当者を選び直してください</span>`
+          }
         </label>
         <label class="form-field">
           <span>文書発行日</span>
@@ -135,21 +141,36 @@ function confirmPage(doc: DocumentRecord, newRevision: string, newDocumentNo: st
   `;
 }
 
+/** 現行リビジョンの担当者が、いまも有効な担当者として選べるか */
+function isOwnerSelectable(currentOwner: string): boolean {
+  return activeMasters('担当者').some((m) => m.name === currentOwner);
+}
+
 /**
- * 既定は現行リビジョンの担当者（screens.md S-4）。
- * 現行の担当者がマスタから無効化されている場合でも選択肢に残す。
- * 引き継ぎが既定値なのに選べないと、既定のまま実行できなくなるため。
+ * 担当者の選択肢（screens.md S-4）。
+ *
+ * 既定は現行リビジョンの担当者。**ただし無効化されている場合は選択肢に残さない。**
+ * 無効化は今後この人を選ばせないという意思表示で、リビジョンアップは新しい版を
+ * 発行する行為（＝新規発行）にあたるため。過去のリビジョンに残っている氏名は
+ * 履歴としてそのまま保持する。
+ *
+ * その場合は空の選択肢を先頭に置く。`required` が効いて、選び直すまで送信できない。
+ * 「有効な担当者への変更を必須とする」を HTML の検証だけで表現できる。
+ *
+ * 残して既定値にすると、既定のまま `[実行]` を押した利用者が
+ * `POST /documents/{docNo}/revisions` の 400 に必ず当たる（backend も同じ規則で弾く）。
  */
 function ownerOptions(currentOwner: string): string {
-  const names = activeMasters('担当者').map((m) => m.name);
-  if (!names.includes(currentOwner)) names.unshift(currentOwner);
+  const options = activeMasters('担当者').map((m) => {
+    const selected = m.name === currentOwner ? ' selected' : '';
+    return `<option value="${escapeHtml(m.name)}"${selected}>${escapeHtml(m.name)}</option>`;
+  });
 
-  return names
-    .map((name) => {
-      const selected = name === currentOwner ? ' selected' : '';
-      return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(name)}</option>`;
-    })
-    .join('');
+  if (!isOwnerSelectable(currentOwner)) {
+    options.unshift('<option value="" selected>選択してください</option>');
+  }
+
+  return options.join('');
 }
 
 function donePage(newDocumentNo: string): string {
