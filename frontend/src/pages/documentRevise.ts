@@ -8,15 +8,17 @@
 
 import type { DocumentRecord } from '../../../shared/types';
 import { nextRevision, parseDocumentNo } from '../../../shared/documentNo';
+import { apiPostAuthed } from '../lib/api';
+import { isDocumentResponse } from '../lib/guards';
 import { escapeHtml } from '../lib/html';
-import { addMockDocument, findMockDocument } from '../mock/documents';
-import { activeMasters, findMaster } from '../mock/masters';
+import { activeMasters, findMaster } from '../lib/masters';
+import { findDocument, upsertDocument } from '../lib/store';
 
 export function renderDocumentRevise(documentNo: string): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
 
-  const doc = findMockDocument(documentNo);
+  const doc = findDocument(documentNo);
   if (doc === undefined) {
     app.innerHTML = messagePage('この文書番号は台帳に登録されていません', documentNo);
     return;
@@ -40,7 +42,9 @@ export function renderDocumentRevise(documentNo: string): void {
   const newRevision = nextRevision(parsed.revision);
   const newDocumentNo = `${parsed.documentId}_${newRevision}`;
 
-  if (findMockDocument(newDocumentNo) !== undefined) {
+  // 手元の台帳での事前確認。サーバーも条件付き書き込みで弾くが、
+  // 押す前に分かるほうがよい（CLAUDE.md §7 の二重化）
+  if (findDocument(newDocumentNo) !== undefined) {
     app.innerHTML = messagePage(`Rev ${newRevision} は既に台帳にあります`, documentNo);
     return;
   }
@@ -52,14 +56,58 @@ export function renderDocumentRevise(documentNo: string): void {
   const form = app.querySelector<HTMLFormElement>('#revise-form');
   form?.addEventListener('submit', (event) => {
     event.preventDefault();
-    addMockDocument(
-      buildNextRecord(doc, newRevision, newDocumentNo, parsed.documentId, {
-        owner: fieldValue(form, 'owner'),
-        issuedAt: fieldValue(form, 'issuedAt'),
-      }),
-    );
-    app.innerHTML = donePage(newDocumentNo);
+    void submitRevision(app, form, doc);
   });
+}
+
+/**
+ * リビジョンアップを実行する（`POST /documents/{docNo}/revisions`）。
+ *
+ * **新しいレコードは組み立てて送らない。** 送るのは担当者と文書発行日だけで、
+ * 文書番号・文書種類・工程・状態はサーバーが現行レコードから引き継ぐ。
+ * 画面が組み立てて送る方式にすると、S3キーを引き継がないことや
+ * 状態を「ファイル未登録」にすることを画面側でも正しく守る必要が出る
+ * （CLAUDE.md §5・§7）。守る場所は1つにする。
+ *
+ * `productCode` を送るのは、サーバーが GetItem するのに PK が要るため（docs/API.md）。
+ */
+async function submitRevision(
+  app: HTMLElement,
+  form: HTMLFormElement,
+  doc: DocumentRecord,
+): Promise<void> {
+  const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const errorBox = app.querySelector<HTMLElement>('#revise-error');
+
+  // 二重に押すと、2回目はサーバーが 409 で弾くが理由の分からない失敗として見える
+  if (button) {
+    button.disabled = true;
+    button.textContent = '実行中…';
+  }
+  if (errorBox) errorBox.textContent = '';
+
+  const result = await apiPostAuthed(
+    `/documents/${encodeURIComponent(doc.documentNo)}/revisions`,
+    {
+      productCode: doc.productCode,
+      owner: fieldValue(form, 'owner'),
+      issuedAt: fieldValue(form, 'issuedAt'),
+    },
+    isDocumentResponse,
+  );
+
+  if (!result.ok) {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '実行';
+    }
+    if (errorBox) errorBox.textContent = result.message;
+    return;
+  }
+
+  upsertDocument(result.data.document);
+  // 完了画面に出すのはサーバーが確定した文書番号。画面が組み立てた予測値ではない
+  app.innerHTML = donePage(result.data.document.documentNo);
 }
 
 function fieldValue(form: HTMLFormElement, name: string): string {
@@ -68,28 +116,15 @@ function fieldValue(form: HTMLFormElement, name: string): string {
   return '';
 }
 
-function buildNextRecord(
-  doc: DocumentRecord,
-  newRevision: string,
-  newDocumentNo: string,
-  documentId: string,
-  input: { owner: string; issuedAt: string },
-): DocumentRecord {
-  return {
-    ...doc,
-    sortKey: `${documentId}#${newRevision}`,
-    documentNo: newDocumentNo,
-    revision: newRevision,
-    // 既定値（現行の担当者・今日）のまま実行できるが、画面で変更もできる（screens.md S-4）
-    owner: input.owner,
-    issuedAt: input.issuedAt,
-    registeredAt: new Date().toISOString(),
-    status: 'ファイル未登録',
-    // 旧Revのファイルを引き継がない。引き継ぐと非同期Lambdaが「両方揃った」と誤判定する
-    s3KeyPdf: undefined,
-    s3KeyExcel: undefined,
-  };
-}
+/**
+ * 新しいレコードの組み立ては**サーバー側へ移した**（backend/src/routes/createRevision.ts）。
+ *
+ * 以前はここで組み立てていたが、そのやり方だと画面側も
+ *   - S3キーを引き継がない（引き継ぐと非同期Lambdaが「両方揃った」と誤判定する）
+ *   - 状態は「ファイル未登録」にする（状態を書けるのは非同期Lambdaだけ・CLAUDE.md §5）
+ * を正しく守る必要があり、規律を守る場所が2つになる。
+ * 画面が送るのは担当者と文書発行日だけにして、残りはサーバーが現行レコードから引き継ぐ。
+ */
 
 function todayIso(): string {
   const now = new Date();
@@ -132,6 +167,9 @@ function confirmPage(doc: DocumentRecord, newRevision: string, newDocumentNo: st
           <span>文書発行日</span>
           <input type="date" name="issuedAt" required value="${escapeHtml(todayIso())}" />
         </label>
+        <!-- サーバーが拒否した理由の表示先（旧版・Rev衝突・無効な担当者など） -->
+        <p class="form-error" id="revise-error" role="alert"></p>
+
         <div class="result-actions">
           <button type="submit" class="btn-primary">実行</button>
           <a class="btn-end" href="#/">一覧へ戻る</a>
