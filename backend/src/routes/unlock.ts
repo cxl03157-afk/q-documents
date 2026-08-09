@@ -111,5 +111,20 @@ export async function postUnlock(
     })
   );
 
-  return jsonResponse(origin, 200, { token, expiresAt });
+  /**
+   * `expiresInSeconds` も返す。
+   *
+   * `expiresAt` はサーバーが生成した絶対時刻なので、画面がこれを自分の時計と
+   * 引き算すると**2つの時計をまたぐ**ことになる。端末の時計が2時間以上進んでいると
+   * 解除した直後にセッションが切れ、「解除しても解除されない」状態になる
+   * （遅れていれば逆に期限を越えて生き残る）。
+   *
+   * 秒数で渡せば、画面は `Date.now() + 秒数` として**自分の時計だけで完結**できる。
+   * `expiresAt` は残す — 画面表示や、ログと突き合わせるときに絶対時刻のほうが読みやすい。
+   */
+  return jsonResponse(origin, 200, {
+    token,
+    expiresAt,
+    expiresInSeconds: config.tokenTtlSeconds,
+  });
 }

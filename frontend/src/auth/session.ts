@@ -47,14 +47,25 @@ export type Session = {
 /** どちらの期限で終了する（した）のか */
 export type UnlockLimit = 'idle' | 'token';
 
+/**
+ * sessionStorage から読んだ値の検証。
+ *
+ * **時刻は `typeof === 'number'` では足りない。`NaN` も number だから。**
+ * `NaN` が入ると `NaN <= 0` が false になり、`getSession()` がセッションを
+ * 一度も破棄しなくなる。トークン期限だけでなく **30分の無操作ロックまで無効化**され、
+ * しかもリロードしても復活する。
+ *
+ * API 側でも応答を検証している（lib/api.ts）が、ここでも弾く。
+ * sessionStorage は開発者ツールから手で書き換えられるため、入口の検証だけでは塞げない。
+ */
 function isSession(value: unknown): value is Session {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.userName === 'string' &&
     typeof v.token === 'string' &&
-    typeof v.expiresAt === 'number' &&
-    typeof v.lastActiveAt === 'number'
+    Number.isFinite(v.expiresAt) &&
+    Number.isFinite(v.lastActiveAt)
   );
 }
 

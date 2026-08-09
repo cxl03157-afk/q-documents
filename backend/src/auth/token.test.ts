@@ -117,10 +117,17 @@ describe('verifyToken', () => {
     expect(result).toEqual({ ok: false, reason: 'malformed' });
   });
 
+  /**
+   * `iat` に NaN を直接書いたケースは作れない。
+   * JSON は NaN を表現できず、`JSON.stringify({ iat: NaN })` は `{"iat":null}` になるため
+   * （ECMAScript の SerializeJSONProperty: 有限でない数値は null）。
+   * ここで確かめているのは **null の扱い**で、それが実際にトークン経由で届きうる形。
+   * `Number.isInteger` は NaN も false にするが、その経路は JSON を通る限り発生しない。
+   */
   it.each([
     ['exp が小数', { n: '山田太郎', iat: 1754_654_400, exp: 1754_661_600.5 }],
     ['exp が文字列', { n: '山田太郎', iat: 1754_654_400, exp: '1754661600' }],
-    ['iat が NaN', { n: '山田太郎', iat: Number.NaN, exp: 1754_661_600 }],
+    ['iat が null', { n: '山田太郎', iat: null, exp: 1754_661_600 }],
     ['氏名が空', { n: '', iat: 1754_654_400, exp: 1754_661_600 }],
   ])('署名が正しくても epoch 秒として不正なペイロードを拒否する: %s', (_label, payload) => {
     // 鍵が漏れた場合や、自前で作ったトークンに想定外の値が混ざった場合を想定する。

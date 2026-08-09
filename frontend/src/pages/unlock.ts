@@ -15,7 +15,34 @@ import { escapeHtml } from '../lib/html';
 import { mockMasters } from '../mock/masters';
 
 /** POST /auth/unlock の成功応答（docs/API.md） */
-type UnlockResponse = { token: string; expiresAt: string };
+type UnlockResponse = {
+  token: string;
+
+  /**
+   * 有効期間（秒）。**絶対時刻の `expiresAt` ではなくこちらを使う。**
+   * サーバーの時刻を自分の時計と引き算すると、端末の時計がずれているときに
+   * 「解除しても解除されない」状態になる。秒数なら自分の時計だけで完結する。
+   */
+  expiresInSeconds: number;
+};
+
+/**
+ * 応答の形を実行時に確かめる。`apiPost` がこれを必須で要求する。
+ *
+ * **`expiresInSeconds` を厳しく見るのは、壊れた値が入ると自動ロックが止まるため。**
+ * 例えば欠けていると `undefined * 1000` が NaN になり、NaN はどんな比較でも false を
+ * 返すので、セッションが一度も期限切れにならなくなる。
+ */
+function isUnlockResponse(value: unknown): value is UnlockResponse {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.token === 'string' &&
+    v.token !== '' &&
+    Number.isInteger(v.expiresInSeconds) &&
+    (v.expiresInSeconds as number) > 0
+  );
+}
 
 export function renderUnlock(): void {
   const app = document.querySelector<HTMLElement>('#app');
@@ -78,10 +105,12 @@ function bindEvents(app: HTMLElement): void {
     clearError(app);
 
     try {
-      const result = await apiPost<UnlockResponse>('/auth/unlock', { userName, passphrase });
+      const result = await apiPost('/auth/unlock', { userName, passphrase }, isUnlockResponse);
 
       if (result.ok) {
-        startSession(userName, result.data.token, Date.parse(result.data.expiresAt));
+        // サーバーの絶対時刻ではなく秒数から求める。時計を1つに揃えるため
+        const expiresAt = Date.now() + result.data.expiresInSeconds * 1000;
+        startSession(userName, result.data.token, expiresAt);
         location.hash = '#/';
         return;
       }

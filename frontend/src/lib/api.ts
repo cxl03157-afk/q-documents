@@ -36,7 +36,24 @@ export type ApiResult<T> =
 /** 通信そのものが成立しなかった場合の status。HTTP には無い値を使う */
 export const NETWORK_ERROR_STATUS = 0;
 
-export async function apiPost<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+/**
+ * POST して応答を検証する。
+ *
+ * **型ガードを必須の引数にしている。** 以前は `payload as T` と書いていたが、
+ * これは型を主張しているだけで実行時には何も確認しておらず、想定外の応答が
+ * 型の付いた値として画面に流れ込んでいた。実際、`expiresAt` が欠けた応答が来ると
+ * `Date.parse` が NaN を返し、NaN はどんな比較でも false になるため
+ * **30分の自動ロックまで恒久的に無効化される**ことがレビューで判明した。
+ *
+ * 呼び出し側で `if` を書く方式（＝書き忘れても型エラーにならない）は採らない。
+ * 8/10 以降でエンドポイントが7本増えるため、規律ではなく型で縛る。
+ * ガードを渡さなければ、そもそもコンパイルが通らない。
+ */
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  isExpected: (value: unknown) => value is T
+): Promise<ApiResult<T>> {
   let response: Response;
 
   try {
@@ -65,7 +82,17 @@ export async function apiPost<T>(path: string, body: unknown): Promise<ApiResult
     };
   }
 
-  return { ok: true, data: payload as T };
+  // 200 でも中身が想定と違えば失敗として扱う。
+  // ここを通さずに先へ渡すと、壊れた値が型の付いた顔をして画面に入る
+  if (!isExpected(payload)) {
+    return {
+      ok: false,
+      status: response.status,
+      message: '応答の形式が正しくありません',
+    };
+  }
+
+  return { ok: true, data: payload };
 }
 
 /** サーバーは失敗時に `{ message }` を返す（backend/src/http.ts） */

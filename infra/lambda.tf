@@ -20,7 +20,9 @@
  * 「ファイルが無い」というエラーで止まる（手順は infra/README.md）。
  *
  * TypeScript のソースを直接 zip にしない理由は、Lambda が TypeScript を実行できないため。
- * esbuild が1ファイルの .mjs にまとめ、AWS SDK はランタイム同梱のものを使う（--external）。
+ * esbuild が1ファイルの .mjs にまとめる。**AWS SDK はバンドルに同梱する**
+ * （ランタイム同梱の SDK は AWS の都合で更新され、こちらが変更していないのに
+ * 挙動が変わりうるため）。同梱に伴う createRequire の banner を含め、理由は backend/build.js。
  */
 data "archive_file" "api" {
   type        = "zip"

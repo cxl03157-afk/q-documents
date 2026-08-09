@@ -53,11 +53,19 @@ export function startAutoLock(): void {
   // 自分で終了したのに「無操作のため終了しました」と出る。
   window.addEventListener(SESSION_CHANGE_EVENT, () => {
     wasUnlocked = isUnlocked();
-    if (wasUnlocked) showAutoLockedNotice = false; // 解除し直したらお知らせを消す
+    if (wasUnlocked) {
+      showAutoLockedNotice = false; // 解除し直したらお知らせを消す
+      lastLimit = remainingUnlock().limit;
+    }
     renderNotice();
   });
 
   wasUnlocked = isUnlocked();
+  // **ここで lastLimit を初期化する。** tick は10秒後にしか動かないので、
+  // これが無いと「リロード直後の10秒以内にトークン期限で切れた」場合に
+  // 初期値の 'idle' が使われ、操作していた利用者に「無操作のため」と出る。
+  // 出し分けを入れた目的そのものが、いちばん肝心な場面で機能しなくなる
+  if (wasUnlocked) lastLimit = remainingUnlock().limit;
   window.setInterval(tick, CHECK_INTERVAL_MS);
   renderNotice();
 }

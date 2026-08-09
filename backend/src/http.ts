@@ -7,29 +7,29 @@
  */
 
 import type { APIGatewayProxyResult } from 'aws-lambda';
-
-/**
- * 許可するオリジン。画面（CloudFront）のドメイン1つだけで、ワイルドカードは使わない
- * （docs/API.md §補足：セキュリティ）。
- *
- * ハンドラに直書きせず環境変数で渡すのは、ディストリビューションを作り直すと
- * ドメインが変わり、コードが追随できなくなるため（8/7 の決定）。
- */
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? '';
+import { config } from './config';
 
 /**
  * CORS の応答ヘッダー。
+ *
+ * 許可するのは画面（CloudFront）のドメイン1つだけで、ワイルドカードは使わない
+ * （docs/API.md §補足：セキュリティ）。値は環境変数から取る — ディストリビューションを
+ * 作り直すとドメインが変わり、直書きだと追随できないため（8/7 の決定）。
+ *
+ * 未設定の検出は config.ts の `required()` に任せている。ここで `?? ''` に
+ * フォールバックすると、設定漏れが「ブラウザからだけ通信できない」という
+ * 別の症状に化けて原因が見えなくなる。
  *
  * `Vary: Origin` を常に付けるのは、許可オリジン以外に対してヘッダーを付けない応答が
  * キャッシュされ、それが別のオリジンに使い回されるのを防ぐため。
  */
 export function corsHeaders(requestOrigin: string): Record<string, string> {
-  if (ALLOWED_ORIGIN === '' || requestOrigin !== ALLOWED_ORIGIN) {
+  if (requestOrigin !== config.allowedOrigin) {
     return { vary: 'Origin' };
   }
 
   return {
-    'access-control-allow-origin': ALLOWED_ORIGIN,
+    'access-control-allow-origin': config.allowedOrigin,
     vary: 'Origin',
   };
 }

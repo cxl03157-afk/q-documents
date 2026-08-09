@@ -22,6 +22,20 @@ const client = new SSMClient({});
  */
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Terraform が入れ物を作るときに置く仮の値（infra/ssm.tf と対になっている）。
+ *
+ * **この値のまま動かさない。** 実値の投入は `aws ssm put-parameter` の手作業なので、
+ * 環境を作り直したときに忘れうる。忘れたまま動くと
+ *   合言葉   — リポジトリを読んだ誰でも解除できる（public リポジトリに載っている文字列）
+ *   署名鍵   — 鍵が既知になり、トークンを手元で偽造できる
+ * という状態になり、しかもアプリは正常に動いているように見えて警告が出ない。
+ *
+ * ここで弾けば、投入忘れが Lambda の初期化エラーとして即座に表面化する。
+ * infra/ssm.tf の value を変えるときは、この定数も合わせること。
+ */
+const PLACEHOLDER_VALUE = 'PLACEHOLDER_SET_VIA_CLI';
+
 type CacheEntry = { value: string; fetchedAt: number };
 const cache = new Map<string, CacheEntry>();
 
@@ -38,6 +52,12 @@ export async function getSecureParameter(name: string): Promise<string> {
   const value = response.Parameter?.Value;
   if (value === undefined || value === '') {
     throw new Error(`SSM パラメータ ${name} の値が空です`);
+  }
+  if (value === PLACEHOLDER_VALUE) {
+    throw new Error(
+      `SSM パラメータ ${name} が Terraform の仮の値のままです。` +
+        `aws ssm put-parameter --name ${name} --type SecureString --value '<値>' --overwrite で投入してください`
+    );
   }
 
   cache.set(name, { value, fetchedAt: Date.now() });

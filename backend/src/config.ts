@@ -30,6 +30,17 @@ function requiredPositiveInt(name: string): number {
 export const config = {
   mastersTable: required('MASTERS_TABLE'),
 
+  /**
+   * CORS で許可する画面のオリジン1つ。ワイルドカードは使わない（docs/API.md）。
+   *
+   * **ここに寄せているのは、欠けたときの症状が最も分かりにくいため。**
+   * 空のまま動くと Lambda は正常に起動して 200 を返すのに、応答に
+   * `access-control-allow-origin` が付かず、ブラウザ側だけが全滅する。
+   * 書き込み系はプリフライトの段階で止まるので本リクエストのログすら残らない。
+   * 初期化で落としてしまえば、CloudWatch Logs の1行目に理由が出る。
+   */
+  allowedOrigin: required('ALLOWED_ORIGIN'),
+
   /** 合言葉を置いた SSM パラメータ名（SecureString） */
   passphraseParam: required('PASSPHRASE_PARAM'),
 
