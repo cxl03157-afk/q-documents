@@ -70,6 +70,23 @@ export function startAutoLock(): void {
   renderNotice();
 }
 
+/**
+ * サーバーがトークンを拒否したときに呼ぶ（lib/api.ts の 401 応答）。
+ *
+ * **理由を立ててから `endSession()` を呼ぶ必要がある。** `endSession()` が出す
+ * SESSION_CHANGE を受けたリスナーは `wasUnlocked` を false に落とすので、
+ * そのあと `tick()` が来ても「解除済み → ロック」の変化を検出できず、
+ * 自動ロックのお知らせが出ない。利用者から見ると、操作の途中で理由の説明もなく
+ * 解除画面へ飛ばされる — 2つの期限を分けた設計が避けようとした症状そのものになる。
+ *
+ * 理由を `'token'` にするのは、画面側の30分がまだ残っているのにサーバーが拒否した、
+ * という状況だから。「無操作のため」と出すと、操作し続けていた利用者には意味が通らない。
+ */
+export function noteServerRejectedToken(): void {
+  showAutoLockedNotice = true;
+  lockedBy = 'token';
+}
+
 function onActivity(): void {
   if (!isUnlocked()) {
     if (showAutoLockedNotice) {
