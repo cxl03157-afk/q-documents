@@ -30,6 +30,9 @@ function requiredPositiveInt(name: string): number {
 export const config = {
   mastersTable: required('MASTERS_TABLE'),
 
+  /** 文書台帳。PK = 製品コード / SK = 文書ID#リビジョン（docs/DynamoDBテーブル設計.md） */
+  ledgerTable: required('LEDGER_TABLE'),
+
   /**
    * CORS で許可する画面のオリジン1つ。ワイルドカードは使わない（docs/API.md）。
    *

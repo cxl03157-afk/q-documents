@@ -3,40 +3,44 @@
  *
  * テーブルは PK = 項目種別（category）/ SK = コード番号（code）
  * （docs/DynamoDBテーブル設計.md）。型は shared/types.ts を正とする。
+ *
+ * **判定はここに書かない。** 「有効か」「共通コードか」「その製品で選べる文書種類は何か」は
+ * shared/masters.ts の純粋関数が持つ。画面側と同じ判定を使うためで、
+ * このファイルの責務は「配列を取ってくる」ことだけに絞る。
  */
 
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { ScanCommand } from '@aws-sdk/lib-dynamodb';
 import type { MasterRecord } from '../../shared/types';
 import { config } from './config';
-
-const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+import { documentClient } from './dynamodb';
 
 /**
- * 担当者マスタに、その氏名が有効な状態で存在するか。
+ * マスタを全件読む。
  *
- * **氏名で引いている。** 画面（S-2）のプルダウンが氏名を値にしているため。
- * コードで引くほうがキー1本で済むが、それには GET /masters が氏名とコードの対を
- * 画面へ渡している必要があり、それは 8/11 の実装になる。
+ * **キャッシュしない。** S-6 で追加したマスタが S-3 の選択肢にすぐ出ないと、
+ * screens.md S-3 の「マスタ管理で追加してから戻る」という導線が成立しない。
+ * マスタは4種別あわせて数十件の想定なので、リクエストごとに1回 Scan しても
+ * 読み込みは 1 RCU 前後に収まる。
  *
- * 照合する理由は、氏名がログに残る唯一の識別子だから（CLAUDE.md §8-7）。
- * 自由入力を通すと「誰がエクセルを持ち出したか」の記録が意味を失う。
- * 合言葉は個人を認証しないので、これは本人性の確認ではなく
- * 「実在する担当者の名前しか記録に入らない」ことの担保にとどまる（docs/API.md）。
- *
- * 無効化された担当者を弾くのは、無効化が「今後この人を選ばせない」という意思表示のため。
- * 検索（S-1）で無効マスタも選択肢に出すのとは向きが逆で、ここは登録側と同じ扱いにする。
+ * Scan は1回の応答が 1MB で切れるため、続きがある限り読み進める。
+ * 現在の規模では1回で収まるが、切れたことに気づけないまま
+ * 「選択肢に出ない製品コードがある」という形で表面化するのは避けたい。
  */
-export async function isActiveOwner(userName: string): Promise<boolean> {
-  const response = await client.send(
-    new QueryCommand({
-      TableName: config.mastersTable,
-      KeyConditionExpression: '#category = :category',
-      ExpressionAttributeNames: { '#category': 'category' },
-      ExpressionAttributeValues: { ':category': '担当者' },
-    })
-  );
+export async function loadMasters(): Promise<MasterRecord[]> {
+  const items: MasterRecord[] = [];
+  let startKey: Record<string, unknown> | undefined;
 
-  const items = (response.Items ?? []) as MasterRecord[];
-  return items.some((item) => item.name === userName && item.status === '有効');
+  do {
+    const response = await documentClient.send(
+      new ScanCommand({
+        TableName: config.mastersTable,
+        ExclusiveStartKey: startKey,
+      }),
+    );
+
+    items.push(...((response.Items ?? []) as MasterRecord[]));
+    startKey = response.LastEvaluatedKey;
+  } while (startKey !== undefined);
+
+  return items;
 }

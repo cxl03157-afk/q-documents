@@ -8,11 +8,14 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { APIGatewayProxyResult } from 'aws-lambda';
+import { isActiveOwner } from '../../../shared/masters';
 import { issueToken } from '../auth/token';
 import { config } from '../config';
 import { errorResponse, jsonResponse } from '../http';
-import { isActiveOwner } from '../masters';
+import { loadMasters } from '../masters';
 import { getSecureParameter } from '../ssm';
+import { parseJsonObject, requiredString } from '../validate';
+import type { PublicContext } from './context';
 
 /**
  * どちらが誤りかを示さない（docs/screens.md S-2）。
@@ -20,30 +23,17 @@ import { getSecureParameter } from '../ssm';
  */
 const UNLOCK_ERROR = '氏名または合言葉が違います';
 
-/** 入力の上限。極端に長い文字列でハッシュ計算やログを膨らませない */
-const MAX_FIELD_LENGTH = 200;
-
 type UnlockRequest = { userName: string; passphrase: string };
 
 function parseRequest(body: string | null): UnlockRequest | null {
-  if (body === null) return null;
+  const source = parseJsonObject(body);
+  if (source === null) return null;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(body);
-  } catch {
-    return null;
-  }
+  const userName = requiredString(source, 'userName');
+  const passphrase = requiredString(source, 'passphrase');
+  if (userName === null || passphrase === null) return null;
 
-  if (typeof parsed !== 'object' || parsed === null) return null;
-  const v = parsed as Record<string, unknown>;
-
-  if (typeof v.userName !== 'string' || typeof v.passphrase !== 'string') return null;
-  if (v.userName.length > MAX_FIELD_LENGTH || v.passphrase.length > MAX_FIELD_LENGTH) {
-    return null;
-  }
-
-  return { userName: v.userName, passphrase: v.passphrase };
+  return { userName, passphrase };
 }
 
 /**
@@ -59,18 +49,26 @@ function passphraseMatches(input: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-export async function postUnlock(
-  origin: string,
-  body: string | null
-): Promise<APIGatewayProxyResult> {
-  const request = parseRequest(body);
+export async function postUnlock(context: PublicContext): Promise<APIGatewayProxyResult> {
+  const origin = context.origin;
+
+  const request = parseRequest(context.body);
   if (request === null) {
     return errorResponse(origin, 400, 'リクエストの形式が正しくありません');
   }
 
-  const [passphrase, signingKey] = await Promise.all([
+  /**
+   * マスタの取得も同じ `Promise.all` に入れる。
+   *
+   * SSM の2本とマスタの Scan は互いに依存しないので、直列にする理由がない。
+   * 短縮されるのは主にコールドスタート時だが、**順序を変えても下のタイミング差対策は
+   * 保たれる** — 対策の中身は「両方を評価してから判定する」ことであって、
+   * 評価の順番ではないため。
+   */
+  const [passphrase, signingKey, masters] = await Promise.all([
     getSecureParameter(config.passphraseParam),
     getSecureParameter(config.tokenSecretParam),
+    loadMasters(),
   ]);
 
   /**
@@ -82,7 +80,7 @@ export async function postUnlock(
    * どちらかが false でも打ち切らず、最後の1回だけで判定する。
    */
   const passphraseOk = passphraseMatches(request.passphrase, passphrase);
-  const ownerExists = await isActiveOwner(request.userName);
+  const ownerExists = isActiveOwner(masters, request.userName);
 
   if (!ownerExists || !passphraseOk) {
     // 失敗の記録には合言葉を書かない。氏名も、実在しない場合は攻撃者の入力そのものなので
