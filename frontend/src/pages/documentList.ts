@@ -10,8 +10,9 @@ import type {
   MasterCategory,
   MasterRecord,
 } from '../../../shared/types';
-import { mockDocuments } from '../mock/documents';
-import { mockMasters, isCommonProductCode } from '../mock/masters';
+import { allDocuments } from '../lib/store';
+import { allMasters } from '../lib/store';
+import { isCommonProductCode } from '../lib/masters';
 import { isUnlocked } from '../auth/session';
 import { escapeHtml } from '../lib/html';
 import { downloadCsv, toCsv } from '../lib/csv';
@@ -172,7 +173,7 @@ function masterOptions(
   category: MasterCategory,
   toLabel: (master: MasterRecord) => string,
 ): SelectOption[] {
-  return mockMasters
+  return allMasters()
     .filter((m) => m.category === category)
     // 有効を先に出す。無効は普段使わないので、上に混ざると選びにくい
     .sort((a, b) => Number(a.status === '無効') - Number(b.status === '無効'))
@@ -239,7 +240,7 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
 }
 
 function findByDocumentNo(documentNo: string): DocumentRecord | undefined {
-  return mockDocuments.find((doc) => doc.documentNo === documentNo);
+  return allDocuments().find((doc) => doc.documentNo === documentNo);
 }
 
 function readFilters(form: HTMLFormElement): Filters {
@@ -276,7 +277,7 @@ function renderTable(app: HTMLElement, filters: Filters, selected: DocumentRecor
 
 /** 画面に出ている行。CSV出力・まとめてダウンロードの対象もこれと同じにする */
 function visibleRows(filters: Filters): DocumentRecord[] {
-  return mockDocuments.filter((doc) => showsDeleted(doc, filters) && matchesFilters(doc, filters));
+  return allDocuments().filter((doc) => showsDeleted(doc, filters) && matchesFilters(doc, filters));
 }
 
 /**
@@ -327,7 +328,7 @@ function renderRow(doc: DocumentRecord, selected: DocumentRecord | null): string
 }
 
 function documentTypeName(code: string): string {
-  const master = mockMasters.find((m) => m.category === '文書種類' && m.code === code);
+  const master = allMasters().find((m) => m.category === '文書種類' && m.code === code);
   return master?.name ?? code;
 }
 
@@ -404,11 +405,11 @@ function renderRelatedPanel(app: HTMLElement, selected: DocumentRecord | null): 
   // 出すと「なし」が欠品の警告に見えてしまうため、行ごと出さない
   const common = isCommonProductCode(selected.productCode);
 
-  const groups = mockMasters
+  const groups = allMasters()
     .filter((m) => m.category === '文書種類' && (!common || m.numberingRule === '工程単位'))
     .map((type) => ({
       name: type.name,
-      documents: mockDocuments.filter(
+      documents: allDocuments().filter(
         (doc) =>
           doc.productCode === selected.productCode &&
           doc.documentType === type.code &&

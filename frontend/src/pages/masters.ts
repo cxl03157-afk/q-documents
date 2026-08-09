@@ -8,7 +8,7 @@
 
 import type { MasterCategory, MasterRecord, NumberingRule } from '../../../shared/types';
 import { escapeHtml } from '../lib/html';
-import { mockMasters } from '../mock/masters';
+import { allMasters } from '../lib/store';
 
 const CATEGORIES: MasterCategory[] = ['文書種類', '製品コード', '工程番号', '担当者'];
 
@@ -99,7 +99,7 @@ function tabButton(category: MasterCategory, current: MasterCategory): string {
 }
 
 function rowsHtml(state: State): string {
-  const records = mockMasters.filter((m) => m.category === state.category);
+  const records = allMasters().filter((m) => m.category === state.category);
   if (records.length === 0) {
     return `<tr><td colspan="5" class="empty-row">登録がありません</td></tr>`;
   }
@@ -252,7 +252,7 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
 }
 
 function setStatus(category: MasterCategory, code: string, status: MasterRecord['status']): void {
-  const record = mockMasters.find((m) => m.category === category && m.code === code);
+  const record = allMasters().find((m) => m.category === category && m.code === code);
   if (record !== undefined) record.status = status;
 }
 
@@ -271,9 +271,9 @@ function save(app: HTMLElement, state: State): void {
   state.error = validate(state, code, name);
   if (state.error !== '') return;
 
-  const existing = mockMasters.find((m) => m.category === state.category && m.code === code);
+  const existing = allMasters().find((m) => m.category === state.category && m.code === code);
   if (existing === undefined) {
-    mockMasters.push({
+    allMasters().push({
       category: state.category,
       code,
       name,
@@ -303,7 +303,7 @@ function validate(state: State, code: string, name: string): string {
   }
 
   // 修正のときはコード欄が readonly なので、重複が問題になるのは追加のときだけ
-  if (state.adding && mockMasters.some((m) => m.category === state.category && m.code === code)) {
+  if (state.adding && allMasters().some((m) => m.category === state.category && m.code === code)) {
     return 'このコードは既に登録されています';
   }
 
