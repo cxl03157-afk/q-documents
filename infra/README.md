@@ -105,7 +105,16 @@ aws ssm put-parameter --name /q-documents/passphrase \
 
 ## 通常の操作
 
+**先に Lambda のコードをビルドする。** `lambda.tf` が参照しているのは
+`backend/dist/index.mjs` というビルド成果物で、`.gitignore` の対象なのでリポジトリには入っていない。
+ビルドせずに `plan` を実行すると、archive_file がファイルを見つけられずエラーで止まる。
+
 ```bash
+# リポジトリルートで
+npm ci          # 初回、または依存を更新したとき
+npm run build   # backend/dist/index.mjs と frontend/dist/ ができる
+
+# infra/ で
 terraform fmt -check
 terraform validate
 terraform plan

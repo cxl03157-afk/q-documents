@@ -5,7 +5,8 @@
  * 「操作の記録」「残り1分の警告」「ロックへ切り替わったことの通知」の3つだけ。
  */
 
-import { SESSION_CHANGE_EVENT, endSession, isUnlocked, remainingUnlockMs, touch } from './session';
+import type { UnlockLimit } from './session';
+import { SESSION_CHANGE_EVENT, endSession, isUnlocked, remainingUnlock, touch } from './session';
 
 /** 残りこれを切ったら警告を出す（screens.md §4: 残り1分で警告） */
 const WARN_BEFORE_MS = 60 * 1000;
@@ -28,6 +29,18 @@ let wasUnlocked = false;
 /** 自動ロックが起きた直後だけ出すお知らせ。次の操作で消す */
 let showAutoLockedNotice = false;
 
+/**
+ * 直前の tick で見た「どちらの期限が先か」。
+ *
+ * ロックを検出した時点ではセッションが消えているため、理由を後から引けない。
+ * 解除中のあいだ覚えておいて、切り替わりを検出したときに使う。
+ * tick は10秒ごとなので最大10秒古いが、期限の直前でどちらが先かが入れ替わることはない。
+ */
+let lastLimit: UnlockLimit = 'idle';
+
+/** 自動ロックの理由。お知らせの文面を決める */
+let lockedBy: UnlockLimit = 'idle';
+
 export function startAutoLock(): void {
   for (const type of ACTIVITY_EVENTS) {
     // capture: true — 画面側が stopPropagation してもタイマーが延びるようにする
@@ -40,11 +53,19 @@ export function startAutoLock(): void {
   // 自分で終了したのに「無操作のため終了しました」と出る。
   window.addEventListener(SESSION_CHANGE_EVENT, () => {
     wasUnlocked = isUnlocked();
-    if (wasUnlocked) showAutoLockedNotice = false; // 解除し直したらお知らせを消す
+    if (wasUnlocked) {
+      showAutoLockedNotice = false; // 解除し直したらお知らせを消す
+      lastLimit = remainingUnlock().limit;
+    }
     renderNotice();
   });
 
   wasUnlocked = isUnlocked();
+  // **ここで lastLimit を初期化する。** tick は10秒後にしか動かないので、
+  // これが無いと「リロード直後の10秒以内にトークン期限で切れた」場合に
+  // 初期値の 'idle' が使われ、操作していた利用者に「無操作のため」と出る。
+  // 出し分けを入れた目的そのものが、いちばん肝心な場面で機能しなくなる
+  if (wasUnlocked) lastLimit = remainingUnlock().limit;
   window.setInterval(tick, CHECK_INTERVAL_MS);
   renderNotice();
 }
@@ -70,9 +91,11 @@ function tick(): void {
 
   if (wasUnlocked && !unlocked) {
     showAutoLockedNotice = true;
+    lockedBy = lastLimit;
     // getSession() が期限切れを検出済みでも、ヘッダーと一覧を描き直すために通知は出す
     endSession();
   }
+  if (unlocked) lastLimit = remainingUnlock().limit;
   wasUnlocked = unlocked;
 
   renderNotice();
@@ -84,15 +107,23 @@ function renderNotice(): void {
 
   if (showAutoLockedNotice) {
     el.className = 'notice notice-locked';
-    el.textContent = '無操作のため生産技術モードを終了しました。再度解除してください。';
+    el.textContent =
+      lockedBy === 'idle'
+        ? '無操作のため生産技術モードを終了しました。再度解除してください。'
+        : '解除から一定時間が経過したため生産技術モードを終了しました。再度解除してください。';
     return;
   }
 
-  const remaining = remainingUnlockMs();
-  if (remaining > 0 && remaining <= WARN_BEFORE_MS) {
-    const seconds = Math.ceil(remaining / 1000);
+  const { ms, limit } = remainingUnlock();
+  if (ms > 0 && ms <= WARN_BEFORE_MS) {
+    const seconds = Math.ceil(ms / 1000);
     el.className = 'notice notice-warning';
-    el.textContent = `無操作のため、あと約${seconds}秒で生産技術モードが終了します。画面を操作すると延長されます。`;
+    // 無操作なら操作すれば延びるが、トークンの期限は操作しても延びない。
+    // 同じ文面にすると、操作しても警告が消えない理由が分からない
+    el.textContent =
+      limit === 'idle'
+        ? `無操作のため、あと約${seconds}秒で生産技術モードが終了します。画面を操作すると延長されます。`
+        : `あと約${seconds}秒で生産技術モードが終了します。続ける場合は解除し直してください。`;
     return;
   }
 

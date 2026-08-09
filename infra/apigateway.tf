@@ -193,3 +193,37 @@ resource "aws_api_gateway_stage" "prod" {
   deployment_id = aws_api_gateway_deployment.api.id
   stage_name    = "prod"
 }
+
+/**
+ * スロットリング。
+ *
+ * **これは総当たり対策ではない。** 合言葉は役割単位の共有値なので理屈上は総当たりが効くが、
+ * API Gateway のリソースポリシーで社内IPからしか到達できない以上、到達できる相手が
+ * そもそも限られている。実効的な防御はIP制限のほうで、ここで秒あたりを数十絞っても差は小さい。
+ *
+ * **付ける目的は、最悪ケースの桁を下げること。** 未設定だとアカウント既定の 10,000 req/s が
+ * 上限になり、画面側のループ不具合や連打で理論上1日 $3,000 規模の請求が立つ。
+ * 50 req/s なら同じ状況で $15 程度に収まる。コスト要件（月1,000円）を守っているのは
+ * 予算アラート（budgets.tf・6 USD）のほうで、ここはその手前の歯止めにすぎない。
+ *
+ * **パスごとには絞れない。** `ANY /{proxy+}` の1本構成なので、この API に存在する
+ * メソッドは1つだけ。method_path を指定しても対象は同じになる。
+ * /auth/unlock だけを絞りたくなったら、置き場所は API Gateway ではなく
+ * Lambda + DynamoDB のカウンタになる（状態が要る）。
+ *
+ * burst を 200 にしているのは、一覧のまとめてダウンロード（上限50件・F-11）が
+ * 署名付きURLの発行を最大50件まとめて呼ぶため。50 にすると
+ * **正常な操作がちょうどバケットを空にし、同時に走る他の要求が 429 で落ちる。**
+ * スロットリングはクライアント単位ではなく API 全体で共有されるので、
+ * 同じ社内IPの背後にいる他の利用者も巻き込む。4倍の余裕を持たせた。
+ */
+resource "aws_api_gateway_method_settings" "prod" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  stage_name  = aws_api_gateway_stage.prod.stage_name
+  method_path = "*/*"
+
+  settings {
+    throttling_rate_limit  = 50
+    throttling_burst_limit = 200
+  }
+}
