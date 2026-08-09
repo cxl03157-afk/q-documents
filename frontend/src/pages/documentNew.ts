@@ -5,16 +5,22 @@
  * 週2で `POST /documents/number-preview` と `POST /documents` に接続する。
  */
 
-import type { DocumentRecord, NumberingRule } from '../../../shared/types';
-import { INITIAL_REVISION, buildDocumentNo, buildSortKey } from '../../../shared/documentNo';
+import type { NumberingRule } from '../../../shared/types';
+import { apiPost, apiPostAuthed } from '../lib/api';
+import {
+  type ExistingDocument,
+  isDocumentResponse,
+  isNumberPreviewResponse,
+  readExisting,
+} from '../lib/guards';
 import { escapeHtml } from '../lib/html';
-import { addMockDocument, mockDocuments } from '../mock/documents';
 import {
   activeMasters,
   findMaster,
   isCommonProductCode,
   selectableDocumentTypes,
-} from '../mock/masters';
+} from '../lib/masters';
+import { upsertDocument } from '../lib/store';
 
 type Step = 'input' | 'previewed' | 'registered';
 
@@ -27,8 +33,10 @@ type State = {
   issuedAt: string;
   documentNo: string;
   error: string;
-  /** 既に同じ文書がある場合の現行レコード。S-4 への導線を出すために持つ */
-  duplicate: DocumentRecord | null;
+  /** 既に同じ文書がある場合の現行リビジョン。S-4 への導線を出すために持つ */
+  duplicate: ExistingDocument | null;
+  /** 通信中。二重送信を防ぐためにボタンを無効化する */
+  busy: boolean;
 };
 
 export function renderDocumentNew(): void {
@@ -45,6 +53,7 @@ export function renderDocumentNew(): void {
     documentNo: '',
     error: '',
     duplicate: null,
+    busy: false,
   };
 
   const draw = (): void => {
@@ -76,7 +85,9 @@ function template(state: State): string {
 
 function formTemplate(state: State): string {
   const rule = numberingRuleOf(state.documentType);
-  const locked = state.step !== 'input' ? ' disabled' : '';
+  // 番号を出したあとは入力を変えさせない。変えられると、表示中の番号と
+  // これから登録される内容が食い違う（登録は入力からサーバーが導出し直すため）
+  const locked = state.step !== 'input' || state.busy ? ' disabled' : '';
 
   return `
     <form id="new-form" class="entry-form">
@@ -126,7 +137,13 @@ function formTemplate(state: State): string {
 
       ${errorTemplate(state)}
 
-      ${state.step === 'input' ? '<button type="submit" class="btn-primary">番号を生成</button>' : ''}
+      ${
+        state.step === 'input'
+          ? `<button type="submit" class="btn-primary"${state.busy ? ' disabled' : ''}>${
+              state.busy ? '生成中…' : '番号を生成'
+            }</button>`
+          : ''
+      }
     </form>
   `;
 }
@@ -154,6 +171,8 @@ function processFields(state: State): string {
 function errorTemplate(state: State): string {
   if (state.error === '') return '';
 
+  // 現行リビジョンが取れなかったときは導線を出さない。
+  // 誤った文書番号のリンクを出すより、一覧から探してもらうほうがよい
   const link =
     state.duplicate === null
       ? ''
@@ -170,8 +189,10 @@ function resultTemplate(state: State): string {
         <p class="result-number">${escapeHtml(state.documentNo)}</p>
         <p>この番号を文書に記入し、ファイル名にも付けてください。</p>
         <div class="result-actions">
-          <button type="button" id="register" class="btn-primary">登録</button>
-          <button type="button" id="back-to-input" class="btn-end">入力に戻る</button>
+          <button type="button" id="register" class="btn-primary"${state.busy ? ' disabled' : ''}>${
+            state.busy ? '登録中…' : '登録'
+          }</button>
+          <button type="button" id="back-to-input" class="btn-end"${state.busy ? ' disabled' : ''}>入力に戻る</button>
         </div>
       </div>
     `;
@@ -221,14 +242,15 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
 
   form?.addEventListener('submit', (event) => {
     event.preventDefault();
+    if (state.busy) return;
+
     readForm(form, state);
-    generateNumber(state);
-    draw();
+    void run(state, draw, () => previewNumber(state));
   });
 
   app.querySelector<HTMLButtonElement>('#register')?.addEventListener('click', () => {
-    register(state);
-    draw();
+    if (state.busy) return;
+    void run(state, draw, () => register(state));
   });
 
   app.querySelector<HTMLButtonElement>('#back-to-input')?.addEventListener('click', () => {
@@ -265,106 +287,134 @@ function numberingRuleOf(documentType: string): NumberingRule | undefined {
 }
 
 /**
- * 番号を生成する。マスタ照合と既存文書の照合をここで行う。
- * **画面側の検証は早く知らせるためのもので、正はサーバー側**（CLAUDE.md §7）。
+ * 通信を1本ずつに絞って走らせる。
+ *
+ * `busy` を立ててから描き直すので、押した直後にボタンが無効になる。
+ * これが無いと、二重に押せば同じ文書を2回登録しようとする（2回目はサーバーが
+ * 409 で弾くが、利用者には理由の分からない失敗として出る）。
  */
-function generateNumber(state: State): void {
+async function run(state: State, draw: () => void, task: () => Promise<void>): Promise<void> {
+  state.busy = true;
+  draw();
+
+  try {
+    await task();
+  } finally {
+    state.busy = false;
+    draw();
+  }
+}
+
+/**
+ * サーバーに文書番号を出してもらう（`POST /documents/number-preview`）。
+ *
+ * **既存文書の照合はサーバーに任せる。** 手元の台帳で調べる方式は採らない —
+ * 他の人が登録した文書を見落とすし、古い情報で誤って拒否することもある。
+ * 照合の正はサーバー1か所（CLAUDE.md §7）。409 の応答に現行リビジョンが
+ * 付いてくるので、S-4 への導線もそこから作れる。
+ *
+ * マスタ由来の検証だけは手前に残す。往復せずに誤りを知らせるためで、
+ * 「選択してください」の類はサーバーへ行くまでもない。
+ */
+async function previewNumber(state: State): Promise<void> {
   state.error = '';
   state.duplicate = null;
   state.documentNo = '';
 
-  const rule = numberingRuleOf(state.documentType);
-  if (rule === undefined) {
-    state.error = '文書種類を選択してください';
+  const validationError = validateInput(state);
+  if (validationError !== null) {
+    state.error = validationError;
     return;
   }
 
-  // プルダウンなので通常はマスタにある値しか来ないが、検証は残す。
-  // 画面の制御は開発者ツールから回避できる（CLAUDE.md §7）。
-  if (findMaster('製品コード', state.productCode) === undefined) {
-    state.error =
-      state.productCode === ''
-        ? '製品コードを選択してください'
-        : '製品コードがマスタに登録されていません。マスタ管理で追加してから戻ってください';
+  const result = await apiPost(
+    '/documents/number-preview',
+    {
+      documentType: state.documentType,
+      productCode: state.productCode,
+      // 製品単位の文書種類に工程番号を送るとサーバーが拒否する。
+      // 種類を切り替えたときの残りが混ざらないよう、ここで落とす
+      processNo: numberingRuleOf(state.documentType) === '工程単位' ? state.processNo : undefined,
+    },
+    isNumberPreviewResponse,
+  );
+
+  if (!result.ok) {
+    state.error = result.message;
+    // 409 のときだけ現行リビジョンが付いてくる（docs/API.md）
+    state.duplicate = readExisting(result.payload);
     return;
   }
 
-  // 画面では選択肢から外しているが、開発者ツールから回避できる（CLAUDE.md §7）
-  if (isCommonProductCode(state.productCode) && rule !== '工程単位') {
-    state.error = '共通コードには工程単位の文書種類（作業指示書）だけを登録できます';
-    return;
-  }
-
-  let processName: string | undefined;
-  if (rule === '工程単位') {
-    const process = findMaster('工程番号', state.processNo);
-    if (process === undefined) {
-      state.error = '工程番号を選択してください';
-      return;
-    }
-    processName = process.name;
-  }
-
-  const existing = findExisting(state, rule);
-  if (existing !== undefined) {
-    state.error = `この文書は既に登録されています（現行 Rev ${existing.revision}）。リビジョンアップを使ってください。`;
-    state.duplicate = existing;
-    return;
-  }
-
-  state.documentNo = buildDocumentNo({
-    numberingRule: rule,
-    documentType: state.documentType,
-    productCode: state.productCode,
-    processNo: state.processNo,
-    processName,
-    revision: INITIAL_REVISION,
-  });
+  state.documentNo = result.data.documentNo;
   state.step = 'previewed';
 }
 
 /**
- * 同じ文書が既にあるか調べ、あれば最新のリビジョンを返す。
- * 同じ文書IDで Rev 01 を作れてしまうと、1つの文書に系列が2本できて台帳が壊れる。
+ * 画面側の事前検証（CLAUDE.md §7 の二重化）。
+ *
+ * **正はサーバー側。** ここはプルダウンの選び忘れを往復せずに知らせるためのもので、
+ * 開発者ツールから回避できる。同じ判定はサーバーの `deriveDocumentNumber` にもある。
  */
-function findExisting(state: State, rule: NumberingRule): DocumentRecord | undefined {
-  const candidates = mockDocuments.filter(
-    (doc) =>
-      // 論理削除したものは数えない。数えると「削除して発行し直す」ができなくなる
-      // （CLAUDE.md §5。詰まったレコードの復旧手段がなくなる）
-      doc.status !== '削除済み' &&
-      doc.documentType === state.documentType &&
-      doc.productCode === state.productCode &&
-      (rule === '製品単位' || doc.processNo === state.processNo),
-  );
+function validateInput(state: State): string | null {
+  const rule = numberingRuleOf(state.documentType);
+  if (rule === undefined) return '文書種類を選択してください';
 
-  return candidates.sort((a, b) => b.revision.localeCompare(a.revision))[0];
+  if (findMaster('製品コード', state.productCode) === undefined) {
+    return state.productCode === ''
+      ? '製品コードを選択してください'
+      : '製品コードがマスタに登録されていません。マスタ管理で追加してから戻ってください';
+  }
+
+  if (isCommonProductCode(state.productCode) && rule !== '工程単位') {
+    return '共通コードには工程単位の文書種類（作業指示書）だけを登録できます';
+  }
+
+  if (rule === '工程単位' && findMaster('工程番号', state.processNo) === undefined) {
+    return '工程番号を選択してください';
+  }
+
+  if (state.owner === '') return '担当者を選択してください';
+  if (state.issuedAt === '') return '文書発行日を入力してください';
+
+  return null;
 }
 
-function register(state: State): void {
-  const sortKey = buildSortKey(state.documentNo);
-  if (sortKey === null) {
-    state.error = '文書番号の形式が不正です';
+/**
+ * 台帳に記録する（`POST /documents`）。合言葉のトークンが要る。
+ *
+ * **文書番号は送らない。** サーバーが入力から導出し直す。プレビューで見た番号と
+ * 違うものが登録されることはない（同じ導出関数を通るため）。
+ * 送って照合させる方式にすると、命名ルールの検証がサーバー側に二重に要る。
+ *
+ * 応答で返ってきたレコードをそのままストアへ入れる。全件を読み直さないのは、
+ * 1件のために台帳を取り直す必要がないため。
+ */
+async function register(state: State): Promise<void> {
+  state.error = '';
+
+  const result = await apiPostAuthed(
+    '/documents',
+    {
+      documentType: state.documentType,
+      productCode: state.productCode,
+      processNo: numberingRuleOf(state.documentType) === '工程単位' ? state.processNo : undefined,
+      owner: state.owner,
+      issuedAt: state.issuedAt,
+    },
+    isDocumentResponse,
+  );
+
+  if (!result.ok) {
+    state.error = result.message;
+    state.duplicate = readExisting(result.payload);
+    // 番号の表示に戻さない。既に登録済みなら、その番号はもう使えない
+    if (result.status === 409) state.step = 'input';
     return;
   }
 
-  const rule = numberingRuleOf(state.documentType);
-  const processName = findMaster('工程番号', state.processNo)?.name;
-
-  addMockDocument({
-    productCode: state.productCode,
-    sortKey,
-    documentNo: state.documentNo,
-    documentType: state.documentType,
-    ...(rule === '工程単位' ? { processNo: state.processNo, processName } : {}),
-    revision: INITIAL_REVISION,
-    owner: state.owner,
-    issuedAt: state.issuedAt,
-    registeredAt: new Date().toISOString(),
-    // 状態を書き換えられるのは非同期Lambdaだけ（CLAUDE.md §5）。
-    // 新規作成時の「ファイル未登録」だけが同期APIの責務。
-    status: 'ファイル未登録',
-  });
-
+  upsertDocument(result.data.document);
+  // 表示する番号はサーバーが確定したものにする（導出をやり直しているため）
+  state.documentNo = result.data.document.documentNo;
   state.step = 'registered';
 }

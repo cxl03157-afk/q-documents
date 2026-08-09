@@ -9,14 +9,14 @@
 import type { DocumentRecord } from '../../../shared/types';
 import { validateUploadFileNames } from '../../../shared/uploadFiles';
 import { escapeHtml } from '../lib/html';
-import { findMockDocument } from '../mock/documents';
+import { findDocument } from '../lib/store';
 import { reflectUploadLikeLambda } from '../mock/asyncLambda';
 
 export function renderDocumentUpload(documentNo: string): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
 
-  const doc = findMockDocument(documentNo);
+  const doc = findDocument(documentNo);
 
   // 台帳照合（F-01）。理由をそのまま表示する
   if (doc === undefined) {

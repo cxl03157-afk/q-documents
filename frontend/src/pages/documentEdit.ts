@@ -7,14 +7,14 @@
 
 import type { DocumentPatch, DocumentRecord } from '../../../shared/types';
 import { escapeHtml } from '../lib/html';
-import { findMockDocument } from '../mock/documents';
-import { activeMasters, findMaster } from '../mock/masters';
+import { findDocument } from '../lib/store';
+import { activeMasters, findMaster } from '../lib/masters';
 
 export function renderDocumentEdit(documentNo: string): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
 
-  const doc = findMockDocument(documentNo);
+  const doc = findDocument(documentNo);
   if (doc === undefined || doc.status === '削除済み') {
     app.innerHTML = messagePage('この文書番号は台帳に登録されていません', documentNo);
     return;

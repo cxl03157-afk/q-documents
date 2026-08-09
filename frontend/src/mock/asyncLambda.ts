@@ -8,7 +8,7 @@
  * 週3で本物の Lambda に置き換わり、このファイルは消える。
  */
 
-import { mockDocuments } from './documents';
+import { allDocuments } from '../lib/store';
 import { parseDocumentNo } from '../../../shared/documentNo';
 
 /** 台帳への反映を待つ時間。PUT直後は「ファイル未登録」のままである挙動を再現する */
@@ -27,7 +27,7 @@ export function reflectUploadLikeLambda(
   onReflected: () => void,
 ): void {
   window.setTimeout(() => {
-    const doc = mockDocuments.find((d) => d.documentNo === documentNo);
+    const doc = allDocuments().find((d) => d.documentNo === documentNo);
     if (doc === undefined) return;
 
     doc.s3KeyPdf = files.pdfName;
@@ -44,7 +44,7 @@ function archivePreviousRevisions(documentNo: string): void {
   const parsed = parseDocumentNo(documentNo);
   if (parsed === null) return;
 
-  for (const doc of mockDocuments) {
+  for (const doc of allDocuments()) {
     const other = parseDocumentNo(doc.documentNo);
     if (other === null) continue;
 

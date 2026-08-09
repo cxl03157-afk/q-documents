@@ -12,7 +12,7 @@
 import { isUnlocked, startSession } from '../auth/session';
 import { apiPost } from '../lib/api';
 import { escapeHtml } from '../lib/html';
-import { mockMasters } from '../mock/masters';
+import { allMasters } from '../lib/store';
 
 /** POST /auth/unlock の成功応答（docs/API.md） */
 type UnlockResponse = {
@@ -82,7 +82,7 @@ function template(): string {
 
 /** 担当者マスタに登録するのは生産技術の担当者のみ（screens.md S-6） */
 function ownerOptions(): string {
-  return mockMasters
+  return allMasters()
     .filter((m) => m.category === '担当者' && m.status === '有効')
     .map((m) => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.name)}</option>`)
     .join('');
