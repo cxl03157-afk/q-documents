@@ -10,6 +10,29 @@ import type { APIGatewayProxyResult } from 'aws-lambda';
 import { config } from './config';
 
 /**
+ * ヘッダーを名前で引く。**見つからなければ空文字**。
+ *
+ * API Gateway はヘッダー名の大文字小文字を正規化せず、送られてきたままを渡す。
+ * ブラウザの fetch は小文字で送るが curl は `Authorization` のように送るため、
+ * どちらか一方だけを見ると片方の経路で必ず落ちる（`origin` / `Origin` を
+ * 書き分けていた箇所も、書き忘れれば同じことが起きる）。
+ *
+ * 呼び出しごとに書き分けるのをやめ、**キーを1度だけ小文字に揃えて**引く。
+ */
+export function headerValue(
+  headers: Record<string, string | undefined> | null | undefined,
+  name: string,
+): string {
+  if (!headers) return '';
+
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === target) return value ?? '';
+  }
+  return '';
+}
+
+/**
  * CORS の応答ヘッダー。
  *
  * 許可するのは画面（CloudFront）のドメイン1つだけで、ワイルドカードは使わない
@@ -76,11 +99,19 @@ export function jsonResponse(
   };
 }
 
-/** エラー応答。本文の形を `{ message }` に統一して画面側の分岐を減らす */
+/**
+ * エラー応答。本文の形を `{ message }` に統一して画面側の分岐を減らす。
+ *
+ * `extra` は、画面が次の操作を出すために追加の情報が要る場合にだけ使う。
+ * 今のところ採番の 409 だけで、既に登録済みの現行リビジョンを添える
+ * （S-3 が「リビジョンアップへ」の導線を出すのに要る）。
+ * 例外の中身やテーブル名など、構成の手がかりになるものは入れない。
+ */
 export function errorResponse(
   requestOrigin: string,
   statusCode: number,
-  message: string
+  message: string,
+  extra?: Record<string, unknown>
 ): APIGatewayProxyResult {
-  return jsonResponse(requestOrigin, statusCode, { message });
+  return jsonResponse(requestOrigin, statusCode, { message, ...extra });
 }
