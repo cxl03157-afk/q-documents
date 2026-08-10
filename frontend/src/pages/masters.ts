@@ -89,6 +89,8 @@ function template(state: State): string {
       </tbody>
     </table>
 
+    <p class="form-note">コードは検索・保存のキーになるため、登録後は変更できません。誤って登録した場合は無効化のうえ、正しい内容で追加し直してください。</p>
+
     <div class="result-actions">
       ${state.adding ? '' : '<button type="button" id="add" class="btn-primary">追加</button>'}
       <a class="btn-end" href="#/">一覧へ戻る</a>
