@@ -158,3 +158,14 @@ export type MasterRecord = {
    */
   isCommon?: boolean;
 };
+
+/**
+ * `PATCH /masters/{id}` で更新できる項目（docs/screens.md S-6）。
+ *
+ * category・code は変更できない（変えれば別のレコードになるため。パスの `id` が正）。
+ * status を含むのは、無効化/有効化も同じエンドポイントで行うため
+ * （`DELETE /masters` は無い。物理削除はしない）。
+ * 全項目 optional なのは、無効化のときは status だけ、名称修正のときは name だけを
+ * 送れば足りるようにするため。少なくとも1項目は必須で、ハンドラ側で検証する。
+ */
+export type MasterPatch = Partial<Pick<MasterRecord, 'name' | 'status' | 'numberingRule' | 'isCommon'>>;

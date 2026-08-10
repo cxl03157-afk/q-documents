@@ -14,6 +14,8 @@ import { matchRoute, routes } from './table';
 const EXPECTED = [
   { method: 'POST', path: '/auth/unlock', auth: 'public' },
   { method: 'GET', path: '/masters', auth: 'public' },
+  { method: 'POST', path: '/masters', auth: 'required' },
+  { method: 'PATCH', path: '/masters/文書種類#Q001', auth: 'required' },
   { method: 'GET', path: '/documents', auth: 'conditional' },
   { method: 'POST', path: '/documents/number-preview', auth: 'public' },
   { method: 'POST', path: '/documents', auth: 'required' },
@@ -28,8 +30,6 @@ const EXPECTED = [
  * それが狙いで、合言葉の指定を確認しないまま新しい書き込み口が開くのを防いでいる。
  */
 const NOT_IMPLEMENTED_YET = [
-  { method: 'POST', path: '/masters' },
-  { method: 'PATCH', path: '/masters/E001' },
   { method: 'POST', path: '/documents/Q001_P-0001_01/upload-url' },
   { method: 'GET', path: '/documents/Q001_P-0001_01/download-url' },
   { method: 'PATCH', path: '/documents/Q001_P-0001_01' },
@@ -93,6 +93,12 @@ describe('パスの照合', () => {
     expect(matchRoute('GET', '/documentsX')).toBeNull();
     expect(matchRoute('GET', '/prod/documents')).toBeNull();
     expect(matchRoute('GET', '/documents/')).toBeNull();
+  });
+
+  it('PATCH /masters/{id} の id を # 込みで取り出せる（shared/masterId.ts）', () => {
+    const matched = matchRoute('PATCH', '/masters/文書種類#Q001');
+
+    expect(matched?.params.id).toBe('文書種類#Q001');
   });
 
   it('number-preview が revisions のパターンに吸われない', () => {

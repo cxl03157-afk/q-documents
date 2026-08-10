@@ -110,3 +110,28 @@ export function findOwnerByName(
 ): MasterRecord | undefined {
   return masters.find((m) => m.category === '担当者' && m.name === userName);
 }
+
+/**
+ * 「工程単位の文書種類は1つまで」を破っていないか（`POST /masters`・`PATCH /masters/{id}`）。
+ *
+ * 工程単位の文書番号（`製品コード_工程番号_工程名_Rev`）は文書種類コードを含まない。
+ * 工程単位の文書種類が2件あると、どちらで登録しても同じ文書IDになり得るため、
+ * サーバー側で1件までに縛る（工程単位が作業指示書だけなのは意図的な前提。CLAUDE.md 未解決）。
+ *
+ * **状態（有効/無効）を問わず数える。** 無効化しても文書番号の形は既に確定した過去の文書に
+ * 残っているため、無効化した瞬間に新しい工程単位の文書種類を作れてよいわけではない
+ * （無効なマスタは新規発行に使えないだけで、番号の唯一性の話とは別軸）。
+ *
+ * `excludeCode` は PATCH で自分自身を除くために使う。新規追加（POST）では渡さない。
+ */
+export function hasAnotherProcessScopedDocumentType(
+  masters: MasterRecord[],
+  excludeCode?: string,
+): boolean {
+  return masters.some(
+    (m) =>
+      m.category === '文書種類' &&
+      m.numberingRule === '工程単位' &&
+      m.code !== excludeCode,
+  );
+}

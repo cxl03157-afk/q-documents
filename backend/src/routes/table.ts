@@ -17,11 +17,13 @@
 
 import type { Route } from './context';
 import { postDocument } from './createDocument';
+import { postMaster } from './createMaster';
 import { postRevision } from './createRevision';
 import { getMasters } from './getMasters';
 import { listDocuments } from './listDocuments';
 import { postNumberPreview } from './numberPreview';
 import { postUnlock } from './unlock';
+import { patchMaster } from './updateMaster';
 
 /**
  * パス変数に許す文字。
@@ -44,6 +46,19 @@ export const routes: Route[] = [
     pattern: /^\/masters$/,
     auth: 'public',
     handler: getMasters,
+  },
+  {
+    method: 'POST',
+    pattern: /^\/masters$/,
+    auth: 'required',
+    handler: postMaster,
+  },
+  {
+    method: 'PATCH',
+    // id は `${category}#${code}` の URL エンコード（shared/masterId.ts）。SEGMENT は `/` を含まない
+    pattern: new RegExp(`^/masters/(?<id>${SEGMENT})$`),
+    auth: 'required',
+    handler: patchMaster,
   },
   {
     method: 'GET',

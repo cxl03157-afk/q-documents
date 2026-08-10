@@ -44,7 +44,7 @@ export type ApiResult<T> =
 export const NETWORK_ERROR_STATUS = 0;
 
 type Options = {
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PATCH';
   body?: unknown;
   /**
    * 解除中ならトークンを付けるか。
@@ -163,6 +163,15 @@ export function apiPostAuthed<T>(
   isExpected: (value: unknown) => value is T
 ): Promise<ApiResult<T>> {
   return request(path, { method: 'POST', body, attachToken: true }, isExpected);
+}
+
+/** 合言葉が要る PATCH。トークンを付け、401 ならロック状態へ戻す（`PATCH /masters/{id}` 用） */
+export function apiPatchAuthed<T>(
+  path: string,
+  body: unknown,
+  isExpected: (value: unknown) => value is T
+): Promise<ApiResult<T>> {
+  return request(path, { method: 'PATCH', body, attachToken: true }, isExpected);
 }
 
 /** サーバーは失敗時に `{ message }` を返す（backend/src/http.ts） */

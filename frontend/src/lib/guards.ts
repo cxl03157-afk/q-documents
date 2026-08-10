@@ -97,6 +97,7 @@ export function isMasterRecord(value: unknown): value is MasterRecord {
 export type DocumentsResponse = { documents: DocumentRecord[] };
 export type MastersResponse = { masters: MasterRecord[] };
 export type DocumentResponse = { document: DocumentRecord };
+export type MasterResponse = { master: MasterRecord };
 
 export function isDocumentsResponse(value: unknown): value is DocumentsResponse {
   return isObject(value) && Array.isArray(value.documents) && value.documents.every(isDocumentRecord);
@@ -108,6 +109,10 @@ export function isMastersResponse(value: unknown): value is MastersResponse {
 
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   return isObject(value) && isDocumentRecord(value.document);
+}
+
+export function isMasterResponse(value: unknown): value is MasterResponse {
+  return isObject(value) && isMasterRecord(value.master);
 }
 
 /**
