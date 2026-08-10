@@ -3,12 +3,15 @@
  *
  * プルダウンの選択肢を追加・修正する（F-10）。削除はせず「無効」にする
  * （過去の文書が参照しているため物理削除しない）。
- * 週2で `GET/POST/PATCH /masters` に接続する。
+ * `POST /masters`・`PATCH /masters/{id}` に接続済み。
  */
 
+import { buildMasterId } from '../../../shared/masterId';
 import type { MasterCategory, MasterRecord, NumberingRule } from '../../../shared/types';
+import { apiPatchAuthed, apiPostAuthed } from '../lib/api';
+import { isMasterResponse } from '../lib/guards';
 import { escapeHtml } from '../lib/html';
-import { allMasters } from '../lib/store';
+import { allMasters, upsertMaster } from '../lib/store';
 
 const CATEGORIES: MasterCategory[] = ['文書種類', '製品コード', '工程番号', '担当者'];
 
@@ -16,6 +19,8 @@ const CATEGORIES: MasterCategory[] = ['文書種類', '製品コード', '工程
  * SK と S3キーを壊す文字は登録させない（CLAUDE.md §4）。
  * `#` は SK の結合に、`/` は S3キー・URLパスに使っているため、
  * 名称に混ざると `文書ID#リビジョン` の分解やキーの組み立てが壊れる。
+ *
+ * **正はサーバー側**（CLAUDE.md §7）。ここでの検証は誤りを早く知らせるためだけのもの。
  */
 const FORBIDDEN_CHARS = ['#', '/'];
 
@@ -220,8 +225,8 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
     }
 
     if (target.id === 'save') {
-      save(app, state);
-      draw();
+      // save() 自身が結果に応じて draw() まで行う（送信中の二重クリックを防ぐため）
+      void save(app, state, draw);
       return;
     }
 
@@ -238,25 +243,56 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
     // 物理削除はしない。過去の文書が参照しているため状態だけを変える
     const disableCode = target.dataset.disable;
     if (disableCode !== undefined) {
-      setStatus(state.category, disableCode, '無効');
-      draw();
+      void setStatus(state, draw, disableCode, '無効', target);
       return;
     }
 
     const enableCode = target.dataset.enable;
     if (enableCode !== undefined) {
-      setStatus(state.category, enableCode, '有効');
-      draw();
+      void setStatus(state, draw, enableCode, '有効', target);
     }
   });
 }
 
-function setStatus(category: MasterCategory, code: string, status: MasterRecord['status']): void {
-  const record = allMasters().find((m) => m.category === category && m.code === code);
-  if (record !== undefined) record.status = status;
+/**
+ * `[無効化]`/`[有効化]` の実行（`PATCH /masters/{id}`）。
+ *
+ * 二重に押すと2回目は理由の分からない失敗に見えるので、送信中はボタンを止める。
+ * ここで無効化しても再描画（`draw()`）で作り直されるため、明示的に戻す必要はない。
+ */
+async function setStatus(
+  state: State,
+  draw: () => void,
+  code: string,
+  status: MasterRecord['status'],
+  button: HTMLElement,
+): Promise<void> {
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+
+  const result = await apiPatchAuthed(
+    `/masters/${encodeURIComponent(buildMasterId(state.category, code))}`,
+    { status },
+    isMasterResponse,
+  );
+
+  if (!result.ok) {
+    state.error = result.message;
+    draw();
+    return;
+  }
+
+  upsertMaster(result.data.master);
+  state.error = '';
+  draw();
 }
 
-function save(app: HTMLElement, state: State): void {
+/**
+ * `[追加]`/`[修正]` の保存（`POST /masters`・`PATCH /masters/{id}`）。
+ *
+ * どちらのエンドポイントを呼ぶかは、同じコードの既存レコードがあるかで決める
+ * （追加行は必ず無く、修正行はコード欄が readonly で必ずある）。
+ */
+async function save(app: HTMLElement, state: State, draw: () => void): Promise<void> {
   const row = app.querySelector<HTMLElement>('.editing-row');
   if (row === null) return;
 
@@ -269,28 +305,45 @@ function save(app: HTMLElement, state: State): void {
   state.draft = { code, name, numberingRule, isCommon };
 
   state.error = validate(state, code, name);
-  if (state.error !== '') return;
-
-  const existing = allMasters().find((m) => m.category === state.category && m.code === code);
-  if (existing === undefined) {
-    allMasters().push({
-      category: state.category,
-      code,
-      name,
-      status: '有効',
-      registeredAt: new Date().toISOString().slice(0, 10),
-      ...(state.category === '文書種類' && numberingRule !== '' ? { numberingRule } : {}),
-      ...(state.category === '製品コード' ? { isCommon } : {}),
-    });
-  } else {
-    existing.name = name;
-    if (state.category === '文書種類' && numberingRule !== '') existing.numberingRule = numberingRule;
-    if (state.category === '製品コード') existing.isCommon = isCommon;
+  if (state.error !== '') {
+    draw();
+    return;
   }
 
+  const saveButton = row.querySelector<HTMLButtonElement>('#save');
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = '保存中…';
+  }
+
+  const existing = allMasters().find((m) => m.category === state.category && m.code === code);
+
+  const body = {
+    ...(state.category === '文書種類' && numberingRule !== '' ? { numberingRule } : {}),
+    ...(state.category === '製品コード' ? { isCommon } : {}),
+  };
+
+  const result =
+    existing === undefined
+      ? await apiPostAuthed('/masters', { category: state.category, code, name, ...body }, isMasterResponse)
+      : await apiPatchAuthed(
+          `/masters/${encodeURIComponent(buildMasterId(state.category, code))}`,
+          { name, ...body },
+          isMasterResponse,
+        );
+
+  if (!result.ok) {
+    state.error = result.message;
+    draw();
+    return;
+  }
+
+  upsertMaster(result.data.master);
   state.adding = false;
   state.editing = null;
+  state.error = '';
   state.draft = null;
+  draw();
 }
 
 function validate(state: State, code: string, name: string): string {
