@@ -72,6 +72,10 @@ resource "aws_lambda_function" "api" {
    *   ワイルドカードは使わない（docs/API.md §補足：セキュリティ）。
    *   直書きしないのは、ディストリビューションを作り直すとドメインが変わるため。
    *
+   * FILES_BUCKET — 署名付きURLを発行する対象のバケット。名前にランダムな接尾辞が入るので
+   *   直書きできない。**IAM 側は既に `s3:PutObject` / `s3:GetObject` を許可済み**（iam.tf）で、
+   *   署名付きURLはこのロールの権限をそのまま引き継ぐ。
+   *
    * **秘密の値そのものはここに置かない。** Lambda の環境変数はコンソールから平文で見え、
    * Terraform state にも残る（CLAUDE.md §8-1）。渡すのは SSM の**パラメータ名**だけで、
    * 値は実行時に SSM から読む。
@@ -87,6 +91,7 @@ resource "aws_lambda_function" "api" {
       ALLOWED_ORIGIN     = "https://${aws_cloudfront_distribution.frontend.domain_name}"
       MASTERS_TABLE      = aws_dynamodb_table.masters.name
       LEDGER_TABLE       = aws_dynamodb_table.ledger.name
+      FILES_BUCKET       = aws_s3_bucket.files.bucket
       PASSPHRASE_PARAM   = aws_ssm_parameter.passphrase.name
       TOKEN_SECRET_PARAM = aws_ssm_parameter.token_secret.name
       TOKEN_TTL_SECONDS  = "7200"
