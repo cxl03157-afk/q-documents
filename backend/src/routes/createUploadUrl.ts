@@ -131,7 +131,7 @@ export async function postUploadUrl(context: AuthedContext): Promise<APIGatewayP
  * 段2（状態の更新）までにわずかな隙があり、その間は「キーはあるのに
  * 状態はファイル未登録」に見える。どちらの種別が埋まっているかを知っているのはキーのほう。
  */
-function rejectionReason(document: DocumentRecord, files: UploadRequest): string | null {
+export function rejectionReason(document: DocumentRecord, files: UploadRequest): string | null {
   if (document.status === '旧版') {
     return 'このリビジョンは旧版です。最新のリビジョンにアップロードしてください';
   }
@@ -146,23 +146,39 @@ function rejectionReason(document: DocumentRecord, files: UploadRequest): string
     return 'この文書は削除済みです。新規発行でやり直してください';
   }
 
-  const pdfTaken = files.pdfName !== undefined && document.s3KeyPdf !== undefined;
-  const excelTaken = files.excelName !== undefined && document.s3KeyExcel !== undefined;
+  const pdfRegistered = document.s3KeyPdf !== undefined;
+  const excelRegistered = document.s3KeyExcel !== undefined;
 
-  if (pdfTaken && excelTaken) {
-    return 'このリビジョンのPDFとエクセルは既に登録されています';
-  }
-  if (pdfTaken) {
-    return 'このリビジョンのPDFは既に登録されています';
-  }
-  if (excelTaken) {
-    return 'このリビジョンのエクセルは既に登録されています';
-  }
+  // 要求されたもののうち、既に埋まっている種別
+  const conflicts = [
+    files.pdfName !== undefined && pdfRegistered ? 'PDF' : null,
+    files.excelName !== undefined && excelRegistered ? 'エクセル' : null,
+  ].filter((label): label is string => label !== null);
 
-  return null;
+  if (conflicts.length === 0) return null;
+
+  const reason = `このリビジョンの${conflicts.join('と')}は既に登録されています`;
+
+  /**
+   * まだ空いている種別があれば案内する。
+   *
+   * **要求された種別ではなく、台帳のS3キーから組み立てる。**
+   * 要求から組み立てると「PDFだけ要求・両方とも登録済み」のときに
+   * 「エクセルのみ登録できます」と嘘をつく（エクセルも埋まっているため）。
+   *
+   * ここに案内が要るのは、画面を経由せず直接呼ばれた場合と、
+   * 画面が S-5 を描いたあとに非同期Lambdaが片方を記録した場合。
+   * 「既に登録されています」だけでは、もう片方なら登録できることが伝わらない。
+   */
+  const available = [
+    pdfRegistered ? null : 'PDF',
+    excelRegistered ? null : 'エクセル',
+  ].filter((label): label is string => label !== null);
+
+  return available.length === 0 ? reason : `${reason}。${available.join('と')}のみ登録できます`;
 }
 
-type UploadRequest = {
+export type UploadRequest = {
   pdfName?: string;
   excelName?: string;
 };
