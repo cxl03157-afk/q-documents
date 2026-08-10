@@ -42,6 +42,27 @@ export async function queryRevisions(
   return (response.Items ?? []) as DocumentRecord[];
 }
 
+/**
+ * 1件引く。**強い整合性で読む。**
+ *
+ * DynamoDB の既定は結果整合性で、直前の書き込みが見えないことがある。
+ * ここを既定のままにすると `POST /documents/{docNo}/upload-url` が壊れる。
+ *
+ *   非同期Lambdaが s3KeyPdf を記録した直後にもう一度アップロードを要求されると、
+ *   古い値（キー未記録）が返り、「まだ登録されていない」と判断して
+ *   **配布済みのPDFを差し替えられる署名付きURLを発行してしまう。**
+ *
+ * 採番（createRevision.ts）が既定のままでも壊れなかったのは、読んだあとに
+ * 条件付き `PutItem` という第2層があるから。**upload-url の「書き込み」は S3 で起きるので、
+ * DynamoDB の条件式では守れない。第2層が無い分、読みの正しさに寄りかかっている。**
+ *
+ * コストは 1件あたり 0.5 → 1 RCU。この規模では誤差なので、呼び出し側で
+ * 使い分けさせずに常に強い整合性で読む。
+ *
+ * **これで消えない競合が1つ残る。** 2つのリクエストがほぼ同時に来ると、
+ * どちらも「未登録」を読んでURLが2本出る。閉じるには台帳側に予約を書く必要があり、
+ * そこまではしない（同一人物の二度押しが主で、S-5 はボタンを無効化する）。
+ */
 export async function getDocument(
   productCode: string,
   sortKey: string,
@@ -50,6 +71,7 @@ export async function getDocument(
     new GetCommand({
       TableName: config.ledgerTable,
       Key: { productCode, sortKey },
+      ConsistentRead: true,
     }),
   );
 

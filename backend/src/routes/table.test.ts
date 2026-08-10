@@ -20,6 +20,7 @@ const EXPECTED = [
   { method: 'POST', path: '/documents/number-preview', auth: 'public' },
   { method: 'POST', path: '/documents', auth: 'required' },
   { method: 'POST', path: '/documents/Q001_P-0001_01/revisions', auth: 'required' },
+  { method: 'POST', path: '/documents/Q001_P-0001_01/upload-url', auth: 'required' },
 ] as const;
 
 /**
@@ -30,7 +31,6 @@ const EXPECTED = [
  * それが狙いで、合言葉の指定を確認しないまま新しい書き込み口が開くのを防いでいる。
  */
 const NOT_IMPLEMENTED_YET = [
-  { method: 'POST', path: '/documents/Q001_P-0001_01/upload-url' },
   { method: 'GET', path: '/documents/Q001_P-0001_01/download-url' },
   { method: 'PATCH', path: '/documents/Q001_P-0001_01' },
   { method: 'DELETE', path: '/documents/Q001_P-0001_01' },
@@ -106,6 +106,17 @@ describe('パスの照合', () => {
 
     expect(matched).not.toBeNull();
     expect(matched?.params.docNo).toBeUndefined();
+  });
+
+  it('upload-url と revisions を取り違えない', () => {
+    // どちらも POST /documents/{docNo}/... で auth も required なので、
+    // 取り違えても「合言葉の指定」のテストでは気づけない。ここで押さえる
+    const upload = matchRoute('POST', '/documents/Q001_P-0001_01/upload-url');
+    const revisions = matchRoute('POST', '/documents/Q001_P-0001_01/revisions');
+
+    expect(upload?.route.pattern.source).toContain('upload-url');
+    expect(revisions?.route.pattern.source).toContain('revisions');
+    expect(upload?.params.docNo).toBe('Q001_P-0001_01');
   });
 
   it('未実装のエンドポイントはまだ一致しない', () => {

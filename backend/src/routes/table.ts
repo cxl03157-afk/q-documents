@@ -19,6 +19,7 @@ import type { Route } from './context';
 import { postDocument } from './createDocument';
 import { postMaster } from './createMaster';
 import { postRevision } from './createRevision';
+import { postUploadUrl } from './createUploadUrl';
 import { getMasters } from './getMasters';
 import { listDocuments } from './listDocuments';
 import { postNumberPreview } from './numberPreview';
@@ -85,6 +86,13 @@ export const routes: Route[] = [
     pattern: new RegExp(`^/documents/(?<docNo>${SEGMENT})/revisions$`),
     auth: 'required',
     handler: postRevision,
+  },
+  {
+    method: 'POST',
+    pattern: new RegExp(`^/documents/(?<docNo>${SEGMENT})/upload-url$`),
+    // アップロードは書き込み系。合言葉が要る（docs/API.md 補足）
+    auth: 'required',
+    handler: postUploadUrl,
   },
 ];
 

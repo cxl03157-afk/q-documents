@@ -79,6 +79,53 @@ describe('validateUploadFileNames', () => {
     expect(errors).toContain('ファイル名が命名ルールに従っていません');
   });
 
+  /**
+   * 片方だけのアップロード（要件定義書 F-01）。
+   * 登録済みの種別は再登録できないが、未登録の種別だけを後から追加できる。
+   */
+  describe('片方だけ送られてきた場合', () => {
+    it('PDFだけでもエラーなし', () => {
+      const errors = validateUploadFileNames('Q001_P-0001_01', {
+        pdfName: 'Q001_P-0001_01.pdf',
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('エクセルだけでもエラーなし', () => {
+      const errors = validateUploadFileNames('Q001_P-0001_01', {
+        excelName: 'Q001_P-0001_01.xlsx',
+      });
+      expect(errors).toEqual([]);
+    });
+
+    it('片方だけのときは「2つのファイルの文書番号が一致しません」を出さない', () => {
+      const errors = validateUploadFileNames('Q001_P-0001_01', {
+        excelName: 'Q999_P-9999_01.xlsx',
+      });
+      expect(errors).toEqual(['ファイル名の文書番号が対象の文書と異なります']);
+    });
+
+    it('エクセルだけでも拡張子を検証する', () => {
+      const errors = validateUploadFileNames('Q001_P-0001_01', {
+        excelName: 'Q001_P-0001_01.pdf',
+      });
+      expect(errors).toContain('エクセル欄にはエクセルファイルを選択してください');
+    });
+
+    it('エクセルだけでも命名ルールを検証する（PDF側だけ見ていると素通りする経路）', () => {
+      const errors = validateUploadFileNames('../secret', {
+        excelName: '../secret.xlsx',
+      });
+      expect(errors).toContain('ファイル名が命名ルールに従っていません');
+    });
+
+    it('どちらも選ばれていなければその旨だけを返す', () => {
+      expect(validateUploadFileNames('Q001_P-0001_01', {})).toEqual([
+        'アップロードするファイルを選択してください',
+      ]);
+    });
+  });
+
   it('複数の不備があれば最初の1件で打ち切らずすべて返す', () => {
     const errors = validateUploadFileNames('Q001_P-0001_01', {
       pdfName: 'foo.xlsx', // 拡張子違反・文書番号不一致・命名ルール違反

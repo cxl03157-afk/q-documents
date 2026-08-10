@@ -24,6 +24,7 @@ export default defineConfig({
     env: {
       MASTERS_TABLE: 'test-masters',
       LEDGER_TABLE: 'test-ledger',
+      FILES_BUCKET: 'test-files',
       ALLOWED_ORIGIN: 'https://example.invalid',
       PASSPHRASE_PARAM: '/test/passphrase',
       TOKEN_SECRET_PARAM: '/test/token-secret',

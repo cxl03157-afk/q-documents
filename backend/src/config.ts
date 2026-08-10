@@ -34,6 +34,14 @@ export const config = {
   ledgerTable: required('LEDGER_TABLE'),
 
   /**
+   * PDF・エクセルの実体を置く S3 バケット。署名付きURLの発行に要る。
+   *
+   * バケット名を直書きしないのは、名前にランダムな接尾辞が入っている
+   * （`q-documents-files-0662035f`）ため。作り直すと変わる。
+   */
+  filesBucket: required('FILES_BUCKET'),
+
+  /**
    * CORS で許可する画面のオリジン1つ。ワイルドカードは使わない（docs/API.md）。
    *
    * **ここに寄せているのは、欠けたときの症状が最も分かりにくいため。**
