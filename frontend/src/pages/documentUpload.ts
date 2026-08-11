@@ -75,10 +75,7 @@ function formPage(doc: DocumentRecord): string {
       <fieldset class="entry-fieldset">
         ${needsPdf ? fileField('pdf', 'PDF', '.pdf') : ''}
         ${needsExcel ? fileField('excel', 'エクセル', '.xlsx') : ''}
-        <p class="form-note">
-          ファイル名は <code>${escapeHtml(doc.documentNo)}.pdf</code> /
-          <code>${escapeHtml(doc.documentNo)}.xlsx</code> にしてください。
-        </p>
+        <p class="form-note">${expectedFileNamesNote(doc, needsPdf, needsExcel)}</p>
       </fieldset>
 
       <ul class="form-error" id="upload-error" role="alert"></ul>
@@ -89,6 +86,21 @@ function formPage(doc: DocumentRecord): string {
 
     <div id="upload-result"></div>
   `;
+}
+
+/**
+ * 「ファイル名は◯◯にしてください」の注記。表示している欄に対応するものだけを出す。
+ *
+ * 片方が登録済みでPDF欄を出していないのに `.pdf` の例まで示すと、
+ * その欄が無いのに何のための例か分からず違和感がある（利用者の指摘）。
+ */
+function expectedFileNamesNote(doc: DocumentRecord, needsPdf: boolean, needsExcel: boolean): string {
+  const names = [
+    needsPdf ? `<code>${escapeHtml(doc.documentNo)}.pdf</code>` : null,
+    needsExcel ? `<code>${escapeHtml(doc.documentNo)}.xlsx</code>` : null,
+  ].filter((label): label is string => label !== null);
+
+  return `ファイル名は ${names.join(' / ')} にしてください。`;
 }
 
 function fileField(name: 'pdf' | 'excel', label: string, accept: string): string {
