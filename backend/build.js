@@ -8,12 +8,29 @@
 import { build } from 'esbuild';
 
 await build({
-  entryPoints: ['src/index.ts'],
+  /**
+   * Lambda は2つある（CLAUDE.md §7）。1回のビルドで両方を出す。
+   *
+   *   dist/index.mjs — 同期API（API Gateway）
+   *   dist/async.mjs — 非同期Lambda（S3イベント）
+   *
+   * **バンドルを分けるのは、依存が違うため。** 非同期Lambdaは合言葉もトークンも
+   * 扱わないので SSM を呼ばないし、CORS も関係ない。1本にまとめると、
+   * 使わないコードのために環境変数を渡すことになる（src/env.ts の冒頭を参照）。
+   *
+   * キーがそのまま出力ファイル名になる。`outExtension` が要るのは、
+   * Lambda が nodejs22.x で `.mjs` を ESM として扱うため（package.json は zip に入らない）。
+   */
+  entryPoints: {
+    index: 'src/index.ts',
+    async: 'src/async/index.ts',
+  },
   bundle: true,
   platform: 'node',
   target: 'node22',
   format: 'esm',
-  outfile: 'dist/index.mjs',
+  outdir: 'dist',
+  outExtension: { '.js': '.mjs' },
 
   /**
    * **AWS SDK をバンドルに同梱する**（external にしない）。
