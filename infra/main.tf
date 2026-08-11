@@ -47,6 +47,18 @@ provider "aws" {
 }
 
 /**
+ * アカウントIDを参照する。
+ *
+ * S3 からの Lambda 呼び出し許可（lambda.tf の aws_lambda_permission）に使う。
+ * バケット名は全世界で一意だが、**S3 の source_arn にはアカウントIDが含まれない**ため、
+ * バケットを消したあと他人に同じ名前を取られると、その通知でこちらの Lambda が
+ * 呼ばれうる。source_account を併記して自分のアカウントからの呼び出しに限る。
+ *
+ * 値を直書きしないのは、public リポジトリにアカウントIDを載せないため（main.tf 冒頭と同じ理由）。
+ */
+data "aws_caller_identity" "current" {}
+
+/**
  * S3 バケット名は全世界で一意でなければならない。
  * アカウントIDを名前に含める方法もあるが、public リポジトリにアカウントIDを載せたくない。
  * 4バイトのランダム値を suffix にすると、state には残るがコードには出ない。

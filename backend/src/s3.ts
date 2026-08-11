@@ -57,28 +57,63 @@ export type PresignedUpload = {
 };
 
 /**
+ * 種別ごとのストレージクラス（CLAUDE.md §6）。
+ *
+ * **エクセルは最新版でも Standard-IA に置く。** 400GB のうち大半がエクセルで、
+ * 全て Standard に置くとコスト要件（月1,000円以内）を超える。
+ * 一方 PDF は現場が日常的に開く配布物なので Standard のまま。
+ *
+ * ---
+ *
+ * **Standard に置いてから `CopyObject` で移し替える方式は採らない。**
+ *
+ * 置き先は文書種別だけで決まっていて、**アップロードの時点で分からない情報は何もない**。
+ * 後から判断しているのではなく、判断できたことを後回しにしているだけだった。
+ * 署名条件に入れてしまえば、10〜50MB のエクセルを1往復コピーする手間が丸ごと消える。
+ *
+ * 消えるのは手間だけではない。非同期Lambdaが自分の出した `CopyObject` の
+ * イベントで自分を呼び戻す**再帰の経路が1本なくなる**（残るのは旧版の Glacier 行きだけで、
+ * そちらは段1の `#status <> '旧版'` が止める）。
+ *
+ * PDF は既定が Standard なので指定しない。指定しなくても利用者が
+ * `x-amz-storage-class` を勝手に差し込むことはできない
+ * — **POST ポリシーは、送られたフィールドがすべて条件に含まれることを要求する**ため。
+ */
+const STORAGE_CLASS: Partial<Record<FileType, string>> = {
+  excel: 'STANDARD_IA',
+};
+
+/**
  * 1つのキーに対するアップロード用URLを発行する。
  *
- * **署名条件に3つを埋め込む。** どれも「URLを手に入れた人が何をできるか」を狭める。
+ * **署名条件に4つを埋め込む。** どれも「URLを手に入れた人が何をできるか」を狭める。
  *
- *   key             — このキー以外には書けない。**画面はキーを決められない**
- *   Content-Type    — この種別以外の Content-Type では作れない（CLAUDE.md §8-4）
+ *   key                  — このキー以外には書けない。**画面はキーを決められない**
+ *   Content-Type         — この種別以外の Content-Type では作れない（CLAUDE.md §8-4）
  *   content-length-range — 上限を超えるものは S3 が受け取らない（同上）
+ *   x-amz-storage-class  — エクセルのみ。Standard-IA 以外には置けない（CLAUDE.md §6）
  *
  * `Fields` に入れた値は SDK が**そのまま完全一致の条件としてポリシーに加える**
  * （`@aws-sdk/s3-presigned-post` の実装で確認した）。`key` も同様に条件へ入る。
  * そのため `Conditions` に重ねて書く必要があるのは `content-length-range` だけ。
+ *
+ * **フィールドが増えても画面側の実装は変わらない。** 返した `fields` を全部
+ * `FormData` に入れて最後に `file` を足す、という手順のままでよい。
+ * 逆に落とすと S3 が 403 で拒否するので、**黙って Standard に落ちることはない。**
  */
 export async function createUploadTarget(
   key: string,
   fileType: FileType,
 ): Promise<PresignedUpload> {
+  const storageClass = STORAGE_CLASS[fileType];
+
   const { url, fields } = await createPresignedPost(s3Client, {
     Bucket: config.filesBucket,
     Key: key,
     Expires: UPLOAD_URL_TTL_SECONDS,
     Fields: {
       'Content-Type': CONTENT_TYPE[fileType],
+      ...(storageClass === undefined ? {} : { 'x-amz-storage-class': storageClass }),
     },
     Conditions: [['content-length-range', 1, MAX_UPLOAD_BYTES]],
   });
