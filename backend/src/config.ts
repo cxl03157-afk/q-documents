@@ -1,5 +1,5 @@
 /**
- * 環境変数の読み出し。Terraform（infra/lambda.tf）から渡される。
+ * **同期API Lambda** が使う環境変数。Terraform（infra/lambda.tf）から渡される。
  *
  * **モジュールの読み込み時に検証して、足りなければその場で落とす。**
  * リクエストのたびに `?? ''` で握りつぶすと、設定漏れが「合言葉がいつも一致しない」
@@ -8,24 +8,13 @@
  * 値そのもの（合言葉・署名鍵）は環境変数では渡さない。Lambda の環境変数はコンソールから
  * 平文で見え、Terraform state にも残る（CLAUDE.md §8-1）。ここで渡すのは
  * **SSM パラメータの名前**だけで、値は実行時に SSM から読む。
+ *
+ * **非同期Lambdaはこのファイルを import しない。** 必要な環境変数の本数が違い、
+ * ここを読むと使わない値が無いという理由で初期化に失敗する。読み方だけを共有し、
+ * 何が必要かは各 Lambda が自分で宣言する（env.ts / async/config.ts）。
  */
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === '') {
-    throw new Error(`環境変数 ${name} が設定されていません`);
-  }
-  return value;
-}
-
-function requiredPositiveInt(name: string): number {
-  const raw = required(name);
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`環境変数 ${name} は正の整数である必要があります: ${raw}`);
-  }
-  return value;
-}
+import { required, requiredPositiveInt } from './env';
 
 export const config = {
   mastersTable: required('MASTERS_TABLE'),
