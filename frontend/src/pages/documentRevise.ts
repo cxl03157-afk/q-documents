@@ -24,12 +24,10 @@ export function renderDocumentRevise(documentNo: string): void {
     return;
   }
 
-  // 旧版から Rev を進めると、既に存在する新Revと文書番号が衝突する（screens.md S-4）
-  if (doc.status === '旧版') {
-    app.innerHTML = messagePage(
-      'このリビジョンは旧版です。最新のリビジョンからリビジョンアップしてください',
-      documentNo,
-    );
+  // 「最新」以外からは進めない（screens.md S-4／8/11 決定）。サーバーと同じ4状態を早期に案内する
+  const blocked = ineligibleRevisionMessage(doc);
+  if (blocked !== null) {
+    app.innerHTML = messagePage(blocked, documentNo);
     return;
   }
 
@@ -114,6 +112,43 @@ function fieldValue(form: HTMLFormElement, name: string): string {
   const el = form.elements.namedItem(name);
   if (el instanceof HTMLSelectElement || el instanceof HTMLInputElement) return el.value;
   return '';
+}
+
+/**
+ * 「最新」以外からのリビジョンアップを早期に案内する（CLAUDE.md §7 の検証の二重化）。
+ *
+ * **正はサーバー側**（`backend/src/routes/createRevision.ts` の同名の判定・
+ * `incompleteRevisionMessage`）。ここは「実行してから409で気づく」を防ぐためだけに存在し、
+ * 同じ4状態・同じ文言をそのまま繰り返している。
+ *
+ * 不足の判定に使うのは状態ではなく **S3キーの有無**。段1（キーの記録）から
+ * 段2（状態の更新）までにわずかな隙があり、その間はどちらの種別が埋まっているかを
+ * 状態からは判断できないため（backend と同じ理由）。
+ */
+function ineligibleRevisionMessage(doc: DocumentRecord): string | null {
+  if (doc.status === '最新') return null;
+
+  if (doc.status === '旧版') {
+    return 'このリビジョンは旧版です。最新のリビジョンからリビジョンアップしてください';
+  }
+  if (doc.status === '削除済み') {
+    return 'このリビジョンは削除済みです。新規発行でやり直してください';
+  }
+
+  const missing = [
+    doc.s3KeyPdf === undefined ? 'PDF' : null,
+    doc.s3KeyExcel === undefined ? 'エクセル' : null,
+  ].filter((label): label is string => label !== null);
+
+  if (missing.length === 2) {
+    return 'このリビジョンにはまだファイルが登録されていません。PDFとエクセルを登録して「最新」にしてからリビジョンアップしてください';
+  }
+  if (missing.length === 1) {
+    return `このリビジョンは${missing[0]}が未登録です。登録して「最新」にしてからリビジョンアップしてください`;
+  }
+
+  // 両方揃っているのに「最新」でない。段1と段2の隙間に入った場合にここへ来る（backendと同じ理由）
+  return 'このリビジョンは登録処理中です。しばらく待ってからやり直してください';
 }
 
 /**
