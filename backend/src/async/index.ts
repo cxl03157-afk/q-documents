@@ -186,9 +186,10 @@ async function archivePreviousRevisions(
   );
 
   const failures: string[] = [];
+  let changed = 0;
   for (const key of keys) {
     try {
-      await ensureStorageClass(key, 'GLACIER_IR');
+      if (await ensureStorageClass(key, 'GLACIER_IR')) changed += 1;
     } catch (error) {
       console.error(
         JSON.stringify({
@@ -210,4 +211,26 @@ async function archivePreviousRevisions(
   if (failures.length > 0) {
     throw new Error(`ストレージクラスの変更に失敗しました: ${failures.join(', ')}`);
   }
+
+  /**
+   * **段3に入ったこと自体を必ず1行残す。**
+   *
+   * 個々の操作は「変えたときだけ」ログを書くので、やり直しで何もしなかった場合に
+   * 出力が空になる。すると**段3を走らせたのか、ゲートで弾かれたのかが区別できない**。
+   * 段3のゲートを「段2の勝者」から「レコードが最新であること」に変えたのは、
+   * 再実行が段3をやり直せるようにするためなので、そこが確認できないと
+   * 設計の要が実測できていないことになる（本番の通し確認で気づいた）。
+   *
+   * 件数を添えるのは、旧版化がどこまで進んだかを後から追えるようにするため。
+   * 台帳は現在の姿しか持たないので、経緯が残るのはこのログだけ（CLAUDE.md §8-7）。
+   */
+  console.log(
+    JSON.stringify({
+      message: 'stage3 completed',
+      documentNo: record.documentNo,
+      archived: toArchive.length,
+      alreadyArchived: archived.length - toArchive.length,
+      storageClassChanged: changed,
+    }),
+  );
 }
