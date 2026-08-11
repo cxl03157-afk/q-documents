@@ -104,6 +104,38 @@ export async function postRevision(context: AuthedContext): Promise<APIGatewayPr
     );
   }
 
+  /**
+   * **ファイルが揃っていないリビジョンからは進めない。**
+   *
+   * Rev 02 を発行するということは、Rev 01 の文書が実在して配布されたということ。
+   * それなのに台帳にファイルが無いのは、**業務としてありえない状態**で、
+   * ほとんどの場合は「あとで上げるつもりで上げ忘れた」ことを意味する。
+   * 先に進ませずに、まず現在の Rev を「最新」にしてもらう。
+   *
+   * ---
+   *
+   * **これが「同一文書IDに最新は1行」を支えている。**
+   *
+   * ここを通していると、次の順序で最新が2行できる（本番で再現した）。
+   *
+   *   Rev01 をファイル未登録のまま Rev02 へ Rev up
+   *   → Rev02 のファイルを上げる（Rev02 が最新。Rev01 は一度も最新でないので旧版化されない）
+   *   → あとから Rev01 のファイルを上げる（Rev01 も最新になる）
+   *
+   * 非同期Lambdaの段3は「自分より前」しか見ないため（後続を旧版に落とすのは
+   * 逆方向の遷移になる）、この形は誰にも直せない。**入口で塞ぐのが正しい。**
+   *
+   * 同じ文書IDでもう一度 Rev 01 を作る経路は既に塞がっている
+   * （numbering.ts の findBlockingRevision が削除済み以外の全リビジョンを見る）。
+   * 最新から逆戻りする遷移も無い。よってここを閉じれば追い越しは起きない。
+   *
+   * どうしてもファイルを揃えられない場合は、論理削除して同じ番号で発行し直す
+   * （CLAUDE.md §5。削除済みは重複チェックの対象外なので通る）。
+   */
+  if (current.status !== '最新') {
+    return errorResponse(context.origin, 409, incompleteRevisionMessage(current));
+  }
+
   const newRevision = nextRevision(parsed.revision);
   const newDocumentNo = `${parsed.documentId}_${newRevision}`;
   const newSortKey = buildSortKey(newDocumentNo);
@@ -153,4 +185,39 @@ export async function postRevision(context: AuthedContext): Promise<APIGatewayPr
   );
 
   return jsonResponse(context.origin, 201, { document: record });
+}
+
+/**
+ * ファイルが揃っていないリビジョンからの Rev up を断るときの文言。
+ *
+ * **状態で書き分ける。** どちらも直し方は「足りないファイルを登録する」だが、
+ * 「一部登録」のときは**どちらの種別が足りないか**まで言えるので言う。
+ * 「ファイルを登録してください」とだけ返すと、PDF は上げたつもりの利用者が
+ * 何をすればよいか分からない。
+ *
+ * 不足の判定に使うのは状態ではなく**S3キーの有無**（createUploadUrl.ts と同じ理由）。
+ * 段1（キーの記録）から段2（状態の更新）までにわずかな隙があり、
+ * どちらの種別が埋まっているかを知っているのはキーのほう。
+ */
+export function incompleteRevisionMessage(document: DocumentRecord): string {
+  const missing = [
+    document.s3KeyPdf === undefined ? 'PDF' : null,
+    document.s3KeyExcel === undefined ? 'エクセル' : null,
+  ].filter((label): label is string => label !== null);
+
+  // 両方とも無い（＝ファイル未登録）
+  if (missing.length === 2) {
+    return 'このリビジョンにはまだファイルが登録されていません。PDFとエクセルを登録して「最新」にしてからリビジョンアップしてください';
+  }
+
+  // 片方だけ無い（＝一部登録）
+  if (missing.length === 1) {
+    return `このリビジョンは${missing[0]}が未登録です。登録して「最新」にしてからリビジョンアップしてください`;
+  }
+
+  /**
+   * 両方揃っているのに「最新」でない。段1と段2の隙間に入った場合にここへ来る。
+   * 少し待てば非同期Lambdaが「最新」にするので、やり直しを案内する。
+   */
+  return 'このリビジョンは登録処理中です。しばらく待ってからやり直してください';
 }

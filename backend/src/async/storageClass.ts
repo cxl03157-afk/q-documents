@@ -16,7 +16,6 @@
 import {
   CopyObjectCommand,
   HeadObjectCommand,
-  NotFound,
   S3Client,
   type StorageClass,
 } from '@aws-sdk/client-s3';
@@ -55,27 +54,27 @@ function copySource(key: string): string {
  *      またS3イベントを生む。通知フィルタ（`s3:ObjectCreated:Post` のみ）が
  *      一次防御だが、それが破れても「もう目的のクラスなので何も書かない」で止まる。
  *
- * 実体が無い場合（台帳のS3キーが指す先が消えている）は、記録を残して false を返す。
- * ここで投げても直しようがなく、**台帳の書き込みは既に終わっている**ため
- * — 壊れるのはストレージクラスだけで、それは復旧可能な範囲にとどまる。
+ * ---
+ *
+ * **`HeadObject` の失敗は握りつぶさない。**
+ *
+ * 当初は「実体が消えている」（`NotFound`）だけを捕まえて先へ進める作りにしていたが、
+ * **その分岐には到達しない**。S3 は「オブジェクトが無い」ことを 404 で答えるかどうかを
+ * 呼び出し側が `s3:ListBucket` を持つかで変え、持たない相手には **403** を返す
+ * （404 と 403 の差だけでバケットの中身を推測されないため）。
+ * 非同期ロールには `s3:ListBucket` を与えていない（列挙する仕事が無い・最小権限）。
+ *
+ * つまりコードからは「実体が消えている」と「権限が足りない」を区別できない。
+ * 区別できないものを前者と決めつけて先へ進むと、**本当に権限が壊れているときに
+ * 黙って通過する**。どちらも人が見るべき失敗なので、呼び出し側へ投げる。
+ * 呼び出し側（async/index.ts）がキーごとに記録して、最後にまとめて投げる。
  */
 export async function ensureStorageClass(key: string, target: StorageClass): Promise<boolean> {
-  let current: string | undefined;
+  const head = await s3Client.send(
+    new HeadObjectCommand({ Bucket: asyncConfig.filesBucket, Key: key }),
+  );
 
-  try {
-    const head = await s3Client.send(
-      new HeadObjectCommand({ Bucket: asyncConfig.filesBucket, Key: key }),
-    );
-    current = head.StorageClass;
-  } catch (error) {
-    if (error instanceof NotFound) {
-      console.error(JSON.stringify({ message: 'object not found', key }));
-      return false;
-    }
-    throw error;
-  }
-
-  if (!needsStorageClassChange(current, target)) return false;
+  if (!needsStorageClassChange(head.StorageClass, target)) return false;
 
   await s3Client.send(
     new CopyObjectCommand({
@@ -94,7 +93,7 @@ export async function ensureStorageClass(key: string, target: StorageClass): Pro
     JSON.stringify({
       message: 'storage class changed',
       key,
-      from: current ?? 'STANDARD',
+      from: head.StorageClass ?? 'STANDARD',
       to: target,
     }),
   );
