@@ -355,8 +355,9 @@ function renderActions(doc: DocumentRecord): string {
   // 解除時のみ行に出す書き込み導線（screens.md §5「その他の操作」）
   if (unlocked) {
     // 採番した日とファイルが揃う日は別になるので、一覧からアップロードを再開できるようにする。
-    // 「一部登録」には出さない。S-5 が同一種別の登録済みを拒否するため、押せば必ず失敗する
-    if (doc.status === 'ファイル未登録') {
+    // 「一部登録」にも出す。未登録の種別だけを後から追加できる（要件定義書 F-01）ため、
+    // S-5 は登録済みの欄を隠して残りだけを受け付ける — 押しても必ず失敗するわけではない
+    if (doc.status === 'ファイル未登録' || doc.status === '一部登録') {
       buttons.push(actionLink(doc, 'upload', 'アップロード'));
     }
     buttons.push(actionLink(doc, 'revise', 'リビジョンアップ'));
