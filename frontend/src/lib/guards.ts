@@ -146,6 +146,35 @@ export function isNumberPreviewResponse(value: unknown): value is NumberPreviewR
  */
 export type ExistingDocument = { documentNo: string; revision: string; status: DocumentStatus };
 
+/**
+ * `POST /documents/{docNo}/upload-url` の応答（`backend/src/s3.ts` の `PresignedUpload`）。
+ *
+ * `fields` はブラウザが `FormData` にそのまま詰めて S3 へ送る値で、キー名は署名の都合で
+ * 決まる（`key` / `Content-Type` / `policy` / `x-amz-*` など）。中身を検証しても壊れ方を
+ * 防げないので、「文字列のマップであること」までしか見ない。
+ */
+export type PresignedUpload = { url: string; fields: Record<string, string> };
+
+export type UploadUrlResponse = {
+  pdf?: PresignedUpload;
+  excel?: PresignedUpload;
+  expiresInSeconds: number;
+};
+
+function isPresignedUpload(value: unknown): value is PresignedUpload {
+  if (!isObject(value) || !isNonEmptyString(value.url) || !isObject(value.fields)) return false;
+  return Object.values(value.fields).every((v) => typeof v === 'string');
+}
+
+export function isUploadUrlResponse(value: unknown): value is UploadUrlResponse {
+  return (
+    isObject(value) &&
+    (value.pdf === undefined || isPresignedUpload(value.pdf)) &&
+    (value.excel === undefined || isPresignedUpload(value.excel)) &&
+    typeof value.expiresInSeconds === 'number'
+  );
+}
+
 export function readExisting(value: unknown): ExistingDocument | null {
   if (!isObject(value) || !isObject(value.existing)) return null;
 
