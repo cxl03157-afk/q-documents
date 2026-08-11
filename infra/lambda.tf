@@ -1,13 +1,11 @@
 /**
- * 同期API の Lambda。
+ * Lambda 2つと、それぞれの起動経路。
  *
- * 中身は backend/ の TypeScript を esbuild で1ファイルにまとめたもの。
- * 疎通確認用の Hello World（backend/hello/index.mjs）から差し替えた。
- * **関数・ロググループ・実行ロールは作ったときのまま使っている**（変わったのはコードだけ）。
+ *   同期API      — API Gateway から。ファイル前半
+ *   非同期Lambda — S3 通知から。ファイル後半（S3 通知の設定もそちらに置く）
  *
- * 実行ロールは iam.tf の同期API用（台帳・マスタ・S3・SSM）。
- *
- * 非同期Lambda（S3イベント）はここに書かない。S3 通知の設定とセットで週3に作る。
+ * 中身は backend/ の TypeScript を esbuild でまとめたもの（1回のビルドで2本出る）。
+ * 実行ロールは iam.tf で分けてある。責務の境界をそのまま権限の境界にしている（CLAUDE.md §7）。
  */
 
 /**
@@ -132,4 +130,126 @@ resource "aws_lambda_permission" "api_gateway" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+}
+
+# --- 非同期Lambda（S3イベント）---------------------------------------------
+
+/**
+ * S3 に実体が置かれたあとの処理を担う（CLAUDE.md §7）。
+ *
+ *   S3キーの記録 / 状態遷移 / 旧版のストレージクラス変更
+ *
+ * **クライアントから直接呼ばれる口を持たない。** 起動経路は S3 通知だけで、
+ * API Gateway からは呼べない（aws_lambda_permission が S3 にしか出ていない）。
+ *
+ * 同期API とはバンドルも実行ロールも分けてある。合言葉もトークンも扱わないので
+ * SSM の読み取り権限を持たず、マスタテーブルにも手が届かない（iam.tf）。
+ */
+data "archive_file" "async" {
+  type        = "zip"
+  source_file = "${path.module}/../backend/dist/async.mjs"
+  output_path = "${path.module}/build/async.zip"
+}
+
+/**
+ * 保持期間の理由は同期API側と同じ（監査記録を兼ねる・CLAUDE.md §8-7）。
+ * こちらには「どのファイルがいつ旧版になり、どのストレージクラスへ移ったか」が残る。
+ * 台帳は現在の姿しか持たないので、経緯を追えるのはこのログだけ。
+ */
+resource "aws_cloudwatch_log_group" "async" {
+  name              = "/aws/lambda/q-documents-async"
+  retention_in_days = 365
+}
+
+resource "aws_lambda_function" "async" {
+  function_name = "q-documents-async"
+  description   = "S3 event handler: records keys, advances status, archives old revisions"
+  role          = aws_iam_role.async.arn
+
+  runtime = "nodejs22.x"
+  handler = "async.handler"
+
+  filename         = data.archive_file.async.output_path
+  source_code_hash = data.archive_file.async.output_base64sha256
+
+  # DynamoDB の書き込みと CopyObject。CopyObject はサーバー側で完結するが、
+  # 前リビジョンが複数あると数回繰り返すため同期API（10秒）より長く取る
+  timeout     = 60
+  memory_size = 256
+
+  /**
+   * **同時実行数の上限。再帰の三次防御**（Issue #19）。
+   *
+   * CopyObject は同じバケットへの書き込みなので、またS3イベントを生む。
+   * 一次防御は通知フィルタ（下の aws_s3_bucket_notification で Post のみ）、
+   * 二次防御は段1・段2の状態ガードとストレージクラスの事前確認で、
+   * どちらも1ホップで止まる。ここはそれでも回り始めた場合に**速度を落とす**ための枠。
+   *
+   * **0 にすれば緊急停止できる。** 関数を消さずに起動だけを止められるので、
+   * 原因を調べる間もイベントは（S3 側の再試行が尽きるまで）残る。
+   *
+   * 通常運用では 5 で足りる。1文書あたり PDF とエクセルの2並列で、
+   * 同時に何十件も登録する使い方をしない。
+   */
+  reserved_concurrent_executions = 5
+
+  /**
+   * **同期API とは渡す環境変数が違う。** ALLOWED_ORIGIN も SSM のパラメータ名も要らない。
+   * 余分に渡さないのは、この関数が何に触れるかを定義から読めるようにするため。
+   */
+  environment {
+    variables = {
+      LEDGER_TABLE = aws_dynamodb_table.ledger.name
+      FILES_BUCKET = aws_s3_bucket.files.bucket
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.async]
+}
+
+/**
+ * S3 から呼べるようにする。
+ *
+ * **source_account を併記する。** S3 の source_arn（`arn:aws:s3:::バケット名`）は
+ * リージョンもアカウントIDも含まないため、これだけだと「そのバケット名からの通知」
+ * としか言えない。バケットを消したあと同じ名前を他人に取られた場合に、
+ * その通知でこの関数が呼ばれうる（混乱した代理人問題）。
+ */
+resource "aws_lambda_permission" "async_s3" {
+  statement_id   = "AllowExecutionFromS3"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.async.function_name
+  principal      = "s3.amazonaws.com"
+  source_arn     = aws_s3_bucket.files.arn
+  source_account = data.aws_caller_identity.current.account_id
+}
+
+/**
+ * S3 通知。**バケット側の設定だが、Lambda と対で読めるようにこちらに置く**
+ * （バケットポリシーを cloudfront.tf に置いているのと同じ考え方）。
+ *
+ * ---
+ *
+ * **`s3:ObjectCreated:Post` だけに絞るのが再帰の一次防御**（Issue #19）。
+ *
+ * アップロードは presigned POST なので `Post` で届く。一方、非同期Lambda自身が行う
+ * ストレージクラス変更は `CopyObject` なので `Copy` になり、**発火しない**。
+ * `ObjectCreated:*` にすると自分の書き込みで自分が起動する経路が開く。
+ *
+ * AWS 側にも Lambda の recursive loop detection（2024/10 から S3 も対象・既定オン）が
+ * あるが、約16回回ってから止まり通知は最大3.5時間遅れる。しかも Glacier IR への
+ * 同一キーコピーは置き換えのたびに90日ぶんの early deletion 料金が乗るので、
+ * 16回でも安くない。**AWS 側の検出は最後の網**という位置づけにする。
+ *
+ * 権限が無い状態で通知を設定しようとすると S3 が拒否するので、順序を明示する。
+ */
+resource "aws_s3_bucket_notification" "files" {
+  bucket = aws_s3_bucket.files.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.async.arn
+    events              = ["s3:ObjectCreated:Post"]
+  }
+
+  depends_on = [aws_lambda_permission.async_s3]
 }

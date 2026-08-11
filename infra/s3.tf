@@ -9,12 +9,14 @@
  * **バケットポリシー（OAC からの読み取り許可）はここに書かない。**
  * CloudFront ディストリビューションの ARN を条件に入れる必要があるため、
  * ディストリビューションと同じ cloudfront.tf に置いている。
+ * **S3 通知（非同期Lambdaの起動）も同じ理由で lambda.tf に置いている。**
  *
  * **ライフサイクルルールも書かない。**
- * ストレージクラスの割り当て（CLAUDE.md §6）は「最新になったら Standard-IA」
- * 「旧版になったら Glacier IR」という状態遷移に連動する制御で、非同期Lambdaが
- * CopyObject で行う。Terraform のライフサイクルは「N日経過したら」という時間ベースの
- * ため、まだ最新の文書が Glacier に落ちる。
+ * ストレージクラスの割り当て（CLAUDE.md §6）は状態に連動する制御で、
+ * 「旧版になったら Glacier IR」は非同期Lambdaが CopyObject で行い、
+ * 「エクセルは Standard-IA」はアップロード時の署名条件で決まる。
+ * Terraform のライフサイクルは「N日経過したら」という時間ベースのため、
+ * まだ最新の文書が Glacier に落ちる。
  *
  * **バージョニングも有効にしない。**
  * 同一キーへの CopyObject でクラスだけ変える運用なので、クラス変更のたびに
@@ -70,11 +72,10 @@ resource "aws_s3_bucket_cors_configuration" "files" {
   bucket = aws_s3_bucket.files.id
 
   /**
-   * POST を含めているのは、アップロードに **presigned POST** を使うため。
+   * アップロードは **presigned POST**（8/10 に確定）。
    * CLAUDE.md §8-4 の `content-length-range`（サイズ上限の強制）は
    * presigned POST のポリシーでしか表現できず、presigned PUT には手段がない。
-   * PUT も残してあるのは、ダウンロード側や単純な差し替えで使う可能性があるため。
-   * 実際にどちらで実装するかは週3の署名付きURLの実装で確定する。
+   * PUT も残してあるが、現時点で使っている経路は無い。
    */
   cors_rule {
     allowed_origins = ["https://${aws_cloudfront_distribution.frontend.domain_name}"]
