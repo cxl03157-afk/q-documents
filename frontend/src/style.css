@@ -420,12 +420,6 @@ h1 {
   padding-top: 18px; /* legend の分だけ下げて、選択肢の枠の上端に合わせる */
 }
 
-.bulk-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .filter-actions .btn-end {
   white-space: nowrap;
 }
