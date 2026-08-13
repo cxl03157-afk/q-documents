@@ -20,11 +20,13 @@ import { postDocument } from './createDocument';
 import { postMaster } from './createMaster';
 import { postRevision } from './createRevision';
 import { postUploadUrl } from './createUploadUrl';
+import { deleteDocument } from './deleteDocument';
 import { getDownloadUrl } from './downloadUrl';
 import { getMasters } from './getMasters';
 import { listDocuments } from './listDocuments';
 import { postNumberPreview } from './numberPreview';
 import { postUnlock } from './unlock';
+import { patchDocument } from './updateDocument';
 import { patchMaster } from './updateMaster';
 
 /**
@@ -101,6 +103,25 @@ export const routes: Route[] = [
     // 最新版PDFだけトークン不要。それ以外はハンドラ内で判定する（docs/API.md 補足）
     auth: 'conditional',
     handler: getDownloadUrl,
+  },
+  /**
+   * S-7（台帳の修正・論理削除）。**どちらも `/documents/{docNo}` の1パターンに一致する。**
+   *
+   * `POST /documents/number-preview` と形は同じだがメソッドが違うので衝突しない
+   * （`matchRoute` はメソッドから先に見る）。**逆に、ここへ POST を足すと
+   * `number-preview` を飲み込む**ので、追加するときは上の順序の説明を読むこと。
+   */
+  {
+    method: 'PATCH',
+    pattern: new RegExp(`^/documents/(?<docNo>${SEGMENT})$`),
+    auth: 'required',
+    handler: patchDocument,
+  },
+  {
+    method: 'DELETE',
+    pattern: new RegExp(`^/documents/(?<docNo>${SEGMENT})$`),
+    auth: 'required',
+    handler: deleteDocument,
   },
 ];
 

@@ -8,7 +8,7 @@
 
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { buildSortKey, nextRevision, parseDocumentNo } from '../../../shared/documentNo';
-import { findOwnerByName } from '../../../shared/masters';
+import { activeOwnerRejection } from '../../../shared/masters';
 import type { DocumentRecord } from '../../../shared/types';
 import { errorResponse, jsonResponse } from '../http';
 import { getDocument, putNewDocument } from '../ledger';
@@ -61,16 +61,9 @@ export async function postRevision(context: AuthedContext): Promise<APIGatewayPr
    * その人が後から無効化されている場合があるため。文言を分けておかないと、
    * 既定のまま押した利用者に「登録されていません」と出て、何を直せばよいか分からない。
    */
-  const ownerMaster = findOwnerByName(masters, owner);
-  if (ownerMaster === undefined) {
-    return errorResponse(context.origin, 400, '担当者がマスタに登録されていません');
-  }
-  if (ownerMaster.status !== '有効') {
-    return errorResponse(
-      context.origin,
-      400,
-      'この担当者は無効化されています。有効な担当者を選んでください',
-    );
+  const ownerRejection = activeOwnerRejection(masters, owner);
+  if (ownerRejection !== null) {
+    return errorResponse(context.origin, 400, ownerRejection);
   }
 
   const current = await getDocument(productCode, sortKey);
