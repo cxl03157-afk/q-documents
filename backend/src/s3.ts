@@ -17,10 +17,11 @@
  * `FormData` に返却されたフィールドを詰めて送る形になること。
  */
 
-import { S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { config } from './config';
-import { CONTENT_TYPE, type FileType } from './s3Key';
+import { CONTENT_TYPE, fileNameFor, type FileType } from './s3Key';
 
 /**
  * クライアントはモジュールスコープに1つ。
@@ -119,4 +120,52 @@ export async function createUploadTarget(
   });
 
   return { url, fields };
+}
+
+/**
+ * 閲覧・ダウンロード用の署名付きURLの有効期限（秒）。**15分以内**（CLAUDE.md §8-3）。
+ * アップロード用と同じ上限だが、意味が違う値なので定数は分けておく。
+ */
+export const DOWNLOAD_URL_TTL_SECONDS = 900;
+
+/**
+ * `inline` — ブラウザの既定動作に任せる（PDFは新しいタブでビューア表示）。「閲覧」用
+ * `attachment` — 必ずダウンロードとして保存させる。「ダウンロード」用・まとめてダウンロード用
+ *
+ * PDFだけこの2つを画面が選べるようにする（S-1 の `[PDF閲覧]` / `[PDFダウンロード]`）。
+ * エクセルは常に `attachment`（ブラウザに表示手段が無いのでどちらでも実質ダウンロードになるが、
+ * 画面側は `attachment` しか要求しない。8/12 の利用者の指摘）。
+ */
+export type DownloadDisposition = 'inline' | 'attachment';
+
+/**
+ * 1つのキーに対する閲覧・ダウンロード用URLを発行する（presigned GET）。
+ *
+ * **`Content-Disposition` を署名条件（`ResponseContentDisposition`）で固定する。**
+ * S3のGetObjectはクエリでの応答ヘッダー上書きを許しており、`s3:GetObject` の権限だけで足りる
+ * （追加のIAM権限は不要。7/31時点で同期APIロールに付与済み）。
+ *
+ * ファイル名には文書番号（日本語を含む）を使うため、`filename*=UTF-8''...`（RFC 6266）で指定する。
+ * 対応しない古いブラウザ向けに、ASCIIのみの `filename=` も添えておく（実際に使われるのは
+ * `filename*` を解釈できない場合だけなので、内容の分かりやすさより安全な固定文字列でよい）。
+ */
+export async function createDownloadUrl(
+  key: string,
+  documentNo: string,
+  fileType: FileType,
+  disposition: DownloadDisposition,
+): Promise<string> {
+  const fileName = fileNameFor(documentNo, fileType);
+  const fallbackName = fileType === 'pdf' ? 'document.pdf' : 'document.xlsx';
+
+  return getSignedUrl(
+    s3Client,
+    new GetObjectCommand({
+      Bucket: config.filesBucket,
+      Key: key,
+      ResponseContentDisposition:
+        `${disposition}; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    }),
+    { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
+  );
 }

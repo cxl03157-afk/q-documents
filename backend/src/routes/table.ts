@@ -20,6 +20,7 @@ import { postDocument } from './createDocument';
 import { postMaster } from './createMaster';
 import { postRevision } from './createRevision';
 import { postUploadUrl } from './createUploadUrl';
+import { getDownloadUrl } from './downloadUrl';
 import { getMasters } from './getMasters';
 import { listDocuments } from './listDocuments';
 import { postNumberPreview } from './numberPreview';
@@ -93,6 +94,13 @@ export const routes: Route[] = [
     // アップロードは書き込み系。合言葉が要る（docs/API.md 補足）
     auth: 'required',
     handler: postUploadUrl,
+  },
+  {
+    method: 'GET',
+    pattern: new RegExp(`^/documents/(?<docNo>${SEGMENT})/download-url$`),
+    // 最新版PDFだけトークン不要。それ以外はハンドラ内で判定する（docs/API.md 補足）
+    auth: 'conditional',
+    handler: getDownloadUrl,
   },
 ];
 

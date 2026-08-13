@@ -74,6 +74,16 @@ export function buildS3Key(productCode: string, documentNo: string, fileType: Fi
   return `${productCode}/${documentNo}${EXTENSION[fileType]}`;
 }
 
+/**
+ * ダウンロード時にブラウザへ見せるファイル名（`{文書番号}.{拡張子}`）。
+ *
+ * S3キーの `{製品コード}/` の部分は利用者には無関係な内部構造なので含めない。
+ * 署名付きURLの `Content-Disposition` に載せる値の組み立てに使う（backend/src/s3.ts）。
+ */
+export function fileNameFor(documentNo: string, fileType: FileType): string {
+  return `${documentNo}${EXTENSION[fileType]}`;
+}
+
 export type ParsedS3Key = {
   productCode: string;
   documentNo: string;

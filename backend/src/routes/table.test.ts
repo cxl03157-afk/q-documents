@@ -21,6 +21,7 @@ const EXPECTED = [
   { method: 'POST', path: '/documents', auth: 'required' },
   { method: 'POST', path: '/documents/Q001_P-0001_01/revisions', auth: 'required' },
   { method: 'POST', path: '/documents/Q001_P-0001_01/upload-url', auth: 'required' },
+  { method: 'GET', path: '/documents/Q001_P-0001_01/download-url', auth: 'conditional' },
 ] as const;
 
 /**
@@ -31,7 +32,6 @@ const EXPECTED = [
  * それが狙いで、合言葉の指定を確認しないまま新しい書き込み口が開くのを防いでいる。
  */
 const NOT_IMPLEMENTED_YET = [
-  { method: 'GET', path: '/documents/Q001_P-0001_01/download-url' },
   { method: 'PATCH', path: '/documents/Q001_P-0001_01' },
   { method: 'DELETE', path: '/documents/Q001_P-0001_01' },
 ] as const;

@@ -1,7 +1,7 @@
 /**
  * S-1 一覧・検索（screens.md §5）。
- * 現在の範囲: 一覧表示 + 4条件の絞り込み + 解除時の操作列 + 関連文書パネル（F-06）+ CSV出力（F-08）。
- * データはハードコードで、週2に `GET /documents` へ差し替える。
+ * 現在の範囲: 一覧表示 + 4条件の絞り込み + 解除時の操作列 + 関連文書パネル（F-06）
+ * + CSV出力（F-08）+ ファイルの閲覧・ダウンロード（F-11）。
  */
 
 import type {
@@ -16,6 +16,8 @@ import { isCommonProductCode } from '../lib/masters';
 import { isUnlocked } from '../auth/session';
 import { escapeHtml } from '../lib/html';
 import { downloadCsv, toCsv } from '../lib/csv';
+import { apiGet } from '../lib/api';
+import { isDownloadUrlResponse } from '../lib/guards';
 
 /**
  * 工程名の絞り込みは持たない。マスタ上 工程番号と工程名は1対1で、
@@ -78,7 +80,9 @@ export function renderDocumentList(): void {
       redraw();
     },
     onExport: () => exportCsv(filters),
-    onBulkDownload: (fileType) => bulkDownload(filters, fileType),
+    onBulkDownload: (fileType) => {
+      void bulkDownload(app, filters, fileType);
+    },
   });
 
   redraw();
@@ -225,8 +229,12 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
 
     const button = target.closest<HTMLButtonElement>('.btn-download');
     if (button) {
-      const label = button.dataset.fileType === 'pdf' ? 'PDF' : 'エクセル';
-      window.alert(`モック: ${button.dataset.doc} の${label}ダウンロードは週3で実装します`);
+      const doc = button.dataset.doc === undefined ? undefined : findByDocumentNo(button.dataset.doc);
+      const fileType = button.dataset.fileType;
+      const mode = button.dataset.mode;
+      if (doc !== undefined && (fileType === 'pdf' || fileType === 'excel') && (mode === 'view' || mode === 'download')) {
+        void handleFileAction(doc, fileType, mode);
+      }
       return;
     }
 
@@ -338,15 +346,15 @@ function renderActions(doc: DocumentRecord): string {
   const buttons: string[] = [];
 
   if (doc.status === '最新') {
-    buttons.push(downloadButton(doc, 'pdf'));
-    if (unlocked) buttons.push(downloadButton(doc, 'excel'));
+    buttons.push(fileButtons(doc, 'pdf'));
+    if (unlocked) buttons.push(fileButtons(doc, 'excel'));
   } else if (doc.status === '旧版' && unlocked) {
-    buttons.push(downloadButton(doc, 'pdf'));
-    buttons.push(downloadButton(doc, 'excel'));
+    buttons.push(fileButtons(doc, 'pdf'));
+    buttons.push(fileButtons(doc, 'excel'));
   } else if (doc.status === '削除済み' && unlocked) {
     // 削除済みでも、万一のときに中身を確認できるようエクセルだけは取得できるようにする。
-    // PDFは配布物なので出さない（消したはずの版が現場に出回るのを防ぐ）
-    buttons.push(downloadButton(doc, 'excel'));
+    // PDFは配布物なので出さない（消したはずの版が現場に出回るのを防ぐ。backend側でも403にする）
+    buttons.push(fileButtons(doc, 'excel'));
   }
 
   // 削除済みは書き込みの対象外。リビジョンアップも修正もできない
@@ -372,9 +380,76 @@ function actionLink(doc: DocumentRecord, path: 'upload' | 'revise' | 'edit', lab
   return `<a class="btn-row-link" href="${href}">${label}</a>`;
 }
 
-function downloadButton(doc: DocumentRecord, fileType: 'pdf' | 'excel'): string {
-  const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
-  return `<button type="button" class="btn-download" data-doc="${escapeHtml(doc.documentNo)}" data-file-type="${fileType}">${label}</button>`;
+/**
+ * ファイル種別ごとのボタン（F-11）。
+ *
+ * **PDFだけ「閲覧」と「ダウンロード」の2つに分ける。** エクセルはブラウザに表示手段が
+ * 無いので「閲覧」を用意する意味が無く、ダウンロードの1つだけにする
+ * （8/12、現場の利用者は「一度ダウンロードしてから開く」手間を避けたいという指摘を受けて決定）。
+ */
+function fileButtons(doc: DocumentRecord, fileType: FileType): string {
+  if (fileType === 'excel') {
+    return fileButton(doc, 'excel', 'download', 'エクセルダウンロード');
+  }
+  return fileButton(doc, 'pdf', 'view', 'PDF閲覧') + fileButton(doc, 'pdf', 'download', 'PDFダウンロード');
+}
+
+function fileButton(doc: DocumentRecord, fileType: FileType, mode: FileMode, label: string): string {
+  return (
+    `<button type="button" class="btn-download" data-doc="${escapeHtml(doc.documentNo)}" ` +
+    `data-file-type="${fileType}" data-mode="${mode}">${label}</button>`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ファイルの閲覧・ダウンロード（F-11）
+// ---------------------------------------------------------------------------
+
+type FileMode = 'view' | 'download';
+
+/**
+ * `GET /documents/{docNo}/download-url` のパス組み立て。
+ *
+ * `productCode` を添えるのは、文書番号だけでは台帳のPK（製品コード）が
+ * 導出できないため（製品単位/工程単位で位置が違う。backend/src/routes/downloadUrl.ts と同じ理由）。
+ */
+function downloadUrlPath(doc: DocumentRecord, fileType: FileType, disposition: 'inline' | 'attachment'): string {
+  const params = new URLSearchParams({ fileType, productCode: doc.productCode, disposition });
+  return `/documents/${encodeURIComponent(doc.documentNo)}/download-url?${params.toString()}`;
+}
+
+/**
+ * ブラウザにファイルを保存させる。`lib/csv.ts` の `downloadCsv` と同じ
+ * 「`<a>` を作ってclickして消す」パターン。**画面は離れない** —
+ * サーバー側が `Content-Disposition: attachment` を返すため、ブラウザは
+ * ページ遷移ではなくダウンロードとして扱う（backend/src/s3.ts）。
+ */
+function triggerDownload(url: string): void {
+  const link = document.createElement('a');
+  link.href = url;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+/** 行の `[PDF閲覧]` `[PDFダウンロード]` `[エクセルダウンロード]` の共通処理 */
+async function handleFileAction(doc: DocumentRecord, fileType: FileType, mode: FileMode): Promise<void> {
+  const disposition = mode === 'view' ? 'inline' : 'attachment';
+  const result = await apiGet(downloadUrlPath(doc, fileType, disposition), isDownloadUrlResponse);
+
+  if (!result.ok) {
+    window.alert(result.message);
+    return;
+  }
+
+  // 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので、
+  // ポップアップブロックにはほぼ引っかからない（まとめてダウンロードのようなループとは違う）
+  if (mode === 'view') {
+    window.open(result.data.url, '_blank', 'noopener');
+  } else {
+    triggerDownload(result.data.url);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -540,7 +615,18 @@ function renderBulkButtons(app: HTMLElement, filters: Filters): void {
   }
 }
 
-function bulkDownload(filters: Filters, fileType: FileType): void {
+/**
+ * 対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、得たURLを順に
+ * ダウンロードさせる（`disposition=attachment` 固定。新しいAPIは要らない）。
+ * エクセル・旧版のアクセスログ（CLAUDE.md §8-7）もファイル単位で残る。
+ *
+ * 新しいタブは一切開かない（`triggerDownload` は現在の画面のまま保存させる）ので
+ * ポップアップブロックの対象にならない。代わりにブラウザが「複数のファイルを
+ * ダウンロードしますか」という確認を一度だけ出すことがある（Chrome/Edgeの標準機能）ため、
+ * 開始前に案内する。「ポップアップブロックを解除してください」より、
+ * 「画面上部の確認で[許可]を押す」のほうが操作に迷わない（8/12、利用者の指摘）。
+ */
+async function bulkDownload(app: HTMLElement, filters: Filters, fileType: FileType): Promise<void> {
   const targets = bulkTargets(filters, fileType);
   const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
 
@@ -551,16 +637,37 @@ function bulkDownload(filters: Filters, fileType: FileType): void {
     );
     return;
   }
+  if (targets.length === 0) return;
 
-  // 週3では、対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、
-  // 得た署名付きURLを順にダウンロードさせる。新しいAPIは要らない。
-  // エクセル・旧版のアクセスログ（CLAUDE.md §8-7）もファイル単位で残る。
   window.alert(
-    `モック: ${label} ${targets.length}件のまとめてダウンロードは週3で実装します\n` +
-      targets
-        .slice(0, 5)
-        .map((doc) => doc.documentNo)
-        .join('\n') +
-      (targets.length > 5 ? `\n…ほか${targets.length - 5}件` : ''),
+    `${label}を${targets.length}件ダウンロードします。\n` +
+      'ブラウザの画面上部に「複数のファイルをダウンロードしますか」という確認が表示されたら、' +
+      '[許可]を選んでください。',
   );
+
+  setBulkButtonsDisabled(app, true);
+
+  let failed = 0;
+  for (const doc of targets) {
+    const result = await apiGet(downloadUrlPath(doc, fileType, 'attachment'), isDownloadUrlResponse);
+    if (!result.ok) {
+      failed++;
+      continue;
+    }
+    triggerDownload(result.data.url);
+  }
+
+  // 件数は変わっていないはずだが、disabled の状態を確実に元へ戻す
+  renderBulkButtons(app, filters);
+
+  if (failed > 0) {
+    window.alert(`${failed}件は取得できませんでした。時間をおいて再度お試しください。`);
+  }
+}
+
+function setBulkButtonsDisabled(app: HTMLElement, disabled: boolean): void {
+  const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
+  const excelButton = app.querySelector<HTMLButtonElement>('#bulk-excel');
+  if (pdfButton) pdfButton.disabled = disabled;
+  if (excelButton) excelButton.disabled = disabled;
 }

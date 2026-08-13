@@ -30,6 +30,13 @@ type BaseContext = {
 
   /** パスから取り出した値。例: `/documents/{docNo}/revisions` の `docNo` */
   params: Record<string, string>;
+
+  /**
+   * クエリ文字列。`GET /documents/{docNo}/download-url?fileType=...` のように、
+   * bodyを持たないGETがパラメータを受け取る場合に使う。
+   * API Gatewayが既にデコード済みの値を渡してくる（パスと違い二重デコードは不要）。
+   */
+  query: Record<string, string | undefined>;
 };
 
 /** 合言葉を見ないルート。身元を受け取る手段が無い */
