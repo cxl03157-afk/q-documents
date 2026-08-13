@@ -53,48 +53,19 @@ function defaultFilters(): Filters {
   };
 }
 
-/**
- * `renderDocumentList` を呼ぶたびに増える。非同期処理の結果を書き込んでよいかの目印
- * （`documentUpload.ts` の `activeSession` と同じパターン）。
- *
- * `#app` は使い回しの単一要素で、`router.ts` に前の画面の後始末の仕組みが無い。
- * まとめてダウンロードの実行中に解除/ロックが切り替わると（`main.ts` の
- * `SESSION_CHANGE_EVENT` リスナーが `refreshRoute()` で同じ `/` を再描画する）、
- * 新しいクロージャ（新しい `filters`/`selected`/`bulkInProgress`）が生まれる一方、
- * 古いクロージャの `bulkDownload().finally()` は後から古い `redraw` を呼び続ける。
- * 何もしないと、新しく描き直した画面を古い絞り込み・選択状態で上書きしてしまう
- * （8/13のレビューで指摘）。
- */
-let activeSession = 0;
-
 export function renderDocumentList(): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
 
-  const session = ++activeSession;
-
   let filters = defaultFilters();
   /** 関連文書パネル（F-06）の対象。行を選ぶまでは null */
   let selected: DocumentRecord | null = null;
-  /**
-   * まとめてダウンロードの実行中フラグ（8/12のレビューで発見）。
-   *
-   * `renderBulkButtons` は本来「件数が0件かどうか」だけでボタンの disabled を決めるが、
-   * それだけだと実行中に他の redraw（絞り込み変更・行選択）が挟まった瞬間、
-   * 件数はそのままなのでボタンが再度押せる状態に戻ってしまう。
-   * 押すと重複した非同期ループが同時に走り、同じファイルを二重に取得する。
-   * このフラグを毎回の `redraw` に渡すことで、実行中は必ず disabled を保つ。
-   */
-  let bulkInProgress = false;
 
   app.innerHTML = pageTemplate(filters);
 
   const redraw = (): void => {
-    // 別の描画（別のタブ遷移・SESSION_CHANGEによる再描画）に置き換わっていたら何もしない
-    if (session !== activeSession) return;
     renderTable(app, filters, selected);
     renderRelatedPanel(app, selected);
-    renderBulkButtons(app, filters, bulkInProgress);
   };
 
   bindEvents(app, {
@@ -110,15 +81,6 @@ export function renderDocumentList(): void {
       redraw();
     },
     onExport: () => exportCsv(filters),
-    onBulkDownload: (fileType) => {
-      if (bulkInProgress) return;
-      bulkInProgress = true;
-      redraw();
-      void bulkDownload(filters, fileType).finally(() => {
-        bulkInProgress = false;
-        redraw();
-      });
-    },
   });
 
   redraw();
@@ -134,11 +96,6 @@ function pageTemplate(filters: Filters): string {
       ${multiSelect('statuses', '状態', statusOptions(), filters.statuses)}
       <div class="filter-actions">
         <button type="button" id="export-csv" class="btn-end">CSV出力</button>
-        <!-- PDF とエクセルは対になる操作なので縦に並べる -->
-        <div class="bulk-actions">
-          <button type="button" id="bulk-pdf" class="btn-end"></button>
-          <button type="button" id="bulk-excel" class="btn-end"></button>
-        </div>
       </div>
     </form>
     <table class="document-table">
@@ -243,7 +200,6 @@ type Handlers = {
   onFilterChange: (filters: Filters) => void;
   onSelect: (doc: DocumentRecord) => void;
   onExport: () => void;
-  onBulkDownload: (fileType: FileType) => void;
 };
 
 function bindEvents(app: HTMLElement, handlers: Handlers): void {
@@ -253,10 +209,6 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
   }
 
   app.querySelector<HTMLButtonElement>('#export-csv')?.addEventListener('click', handlers.onExport);
-  app.querySelector<HTMLButtonElement>('#bulk-pdf')
-    ?.addEventListener('click', () => handlers.onBulkDownload('pdf'));
-  app.querySelector<HTMLButtonElement>('#bulk-excel')
-    ?.addEventListener('click', () => handlers.onBulkDownload('excel'));
 
   const tbody = app.querySelector<HTMLTableSectionElement>('#document-rows');
   tbody?.addEventListener('click', (event) => {
@@ -274,7 +226,7 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
         (fileType === 'pdf' || fileType === 'excel') &&
         (mode === 'view' || mode === 'download')
       ) {
-        // 連打で同じリクエストが二重に飛ぶのを防ぐ（まとめてダウンロードの bulkInProgress と同じ理由）。
+        // 連打で同じリクエストが二重に飛ぶのを防ぐ。
         // ボタン単位でよい — 別の行・別の種別の操作までは止めない
         button.disabled = true;
         void handleFileAction(doc, fileType, mode).finally(() => {
@@ -329,7 +281,7 @@ function renderTable(app: HTMLElement, filters: Filters, selected: DocumentRecor
       : `<tr><td colspan="10" class="empty-row">該当する文書がありません</td></tr>`;
 }
 
-/** 画面に出ている行。CSV出力・まとめてダウンロードの対象もこれと同じにする */
+/** 画面に出ている行。CSV出力の対象もこれと同じにする */
 function visibleRows(filters: Filters): DocumentRecord[] {
   return allDocuments().filter((doc) => showsDeleted(doc, filters) && matchesFilters(doc, filters));
 }
@@ -495,8 +447,7 @@ async function handleFileAction(doc: DocumentRecord, fileType: FileType, mode: F
   }
 
   /**
-   * 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので、
-   * まとめてダウンロードのようなループに比べればポップアップブロックの対象になりにくいが、
+   * 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので基本的に問題ないが、
    * 直前に `await` を挟んでいる（＝ユーザー操作からの直接呼び出しではない）ため、
    * 回線が遅い・Lambdaのコールドスタートで応答が遅れた場合はブロックされうる
    * （特にSafariは判定が厳しい。8/12のレビューで指摘）。`window.open` の戻り値が
@@ -619,108 +570,3 @@ function exportCsv(filters: Filters): void {
   downloadCsv(`q-documents_${stamp}.csv`, toCsv(CSV_HEADERS, rows));
 }
 
-// ---------------------------------------------------------------------------
-// まとめてダウンロード
-// ---------------------------------------------------------------------------
-
-/**
- * 一度に落とせる件数の上限。
- *
- * 絞り込みをせずに押すと台帳の全件が対象になる。実運用は数百〜数千件で、
- * ファイルの総量は400GB規模を見込んでいるため、そのまま流すとブラウザ側が破綻する。
- * ZIPでまとめる案は採らない（Lambdaで大容量を集めて圧縮すると、
- * 実行時間・メモリ・コストのすべてが月1,000円の制約に合わない）。
- */
-const BULK_DOWNLOAD_LIMIT = 50;
-
-/**
- * まとめてダウンロードの対象。行ごとのボタンの出し分けと同じ条件にする
- * （ロック時は最新のPDFのみ、解除時は旧版とエクセルも。screens.md §5 S-1 の表）。
- */
-function bulkTargets(filters: Filters, fileType: FileType): DocumentRecord[] {
-  const unlocked = isUnlocked();
-
-  return visibleRows(filters).filter((doc) => {
-    if (fileType === 'excel') {
-      // 削除済みのエクセルも対象。行に出ているボタンと対象を揃える
-      return unlocked && doc.status !== 'ファイル未登録' && doc.status !== '一部登録';
-    }
-    if (doc.status === '最新') return true;
-    return doc.status === '旧版' && unlocked;
-  });
-}
-
-/**
- * 押す前に件数が分かるようにボタン自体に出す。押してから件数を知るのでは遅い。
- *
- * `inProgress` は実行中かどうか（8/12のレビューで追加）。**件数だけで disabled を
- * 決めると、実行中に他の理由で redraw が走った瞬間にボタンが再度押せる状態へ戻り、
- * 二重に非同期ループが走ってしまう。** 呼び出し側（`renderDocumentList` の `redraw`）が
- * 実行中フラグを毎回渡すことで、件数に関係なく実行中は必ず disabled を保つ。
- */
-function renderBulkButtons(app: HTMLElement, filters: Filters, inProgress: boolean): void {
-  const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
-  if (pdfButton) {
-    const count = bulkTargets(filters, 'pdf').length;
-    pdfButton.textContent = `PDFをまとめてダウンロード（${count}件）`;
-    pdfButton.disabled = inProgress || count === 0;
-  }
-
-  const excelButton = app.querySelector<HTMLButtonElement>('#bulk-excel');
-  if (excelButton) {
-    const count = bulkTargets(filters, 'excel').length;
-    // エクセルは解除時のみ（対象0件のときは押せる意味がないので隠す）
-    excelButton.hidden = !isUnlocked();
-    excelButton.textContent = `エクセルをまとめてダウンロード（${count}件）`;
-    excelButton.disabled = inProgress || count === 0;
-  }
-}
-
-/**
- * 対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、得たURLを順に
- * ダウンロードさせる（`disposition=attachment` 固定。新しいAPIは要らない）。
- * エクセル・旧版のアクセスログ（CLAUDE.md §8-7）もファイル単位で残る。
- *
- * 新しいタブは一切開かない（`triggerDownload` は現在の画面のまま保存させる）ので
- * ポップアップブロックの対象にならない。代わりにブラウザが「複数のファイルを
- * ダウンロードしますか」という確認を一度だけ出すことがある（Chrome/Edgeの標準機能）ため、
- * 開始前に案内する。「ポップアップブロックを解除してください」より、
- * 「画面上部の確認で[許可]を押す」のほうが操作に迷わない（8/12、利用者の指摘）。
- *
- * **実行中のボタンのdisabled管理はこの関数の責務にしない。** 呼び出し側
- * （`renderDocumentList` の `onBulkDownload`）が実行中フラグを持ち、
- * `redraw` を通して disabled を反映する（8/12のレビューで見つかった二重起動バグの対策）。
- */
-async function bulkDownload(filters: Filters, fileType: FileType): Promise<void> {
-  const targets = bulkTargets(filters, fileType);
-  const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
-
-  if (targets.length > BULK_DOWNLOAD_LIMIT) {
-    window.alert(
-      `一度にダウンロードできるのは${BULK_DOWNLOAD_LIMIT}件までです` +
-        `（現在 ${targets.length}件）。絞り込んでから実行してください。`,
-    );
-    return;
-  }
-  if (targets.length === 0) return;
-
-  window.alert(
-    `${label}を${targets.length}件ダウンロードします。\n` +
-      'ブラウザの画面上部に「複数のファイルをダウンロードしますか」という確認が表示されたら、' +
-      '[許可]を選んでください。',
-  );
-
-  let failed = 0;
-  for (const doc of targets) {
-    const result = await apiGet(downloadUrlPath(doc, fileType, 'attachment'), isDownloadUrlResponse);
-    if (!result.ok) {
-      failed++;
-      continue;
-    }
-    triggerDownload(result.data.url);
-  }
-
-  if (failed > 0) {
-    window.alert(`${failed}件は取得できませんでした。時間をおいて再度お試しください。`);
-  }
-}
