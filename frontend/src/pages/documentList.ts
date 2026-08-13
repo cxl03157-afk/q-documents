@@ -53,9 +53,25 @@ function defaultFilters(): Filters {
   };
 }
 
+/**
+ * `renderDocumentList` を呼ぶたびに増える。非同期処理の結果を書き込んでよいかの目印
+ * （`documentUpload.ts` の `activeSession` と同じパターン）。
+ *
+ * `#app` は使い回しの単一要素で、`router.ts` に前の画面の後始末の仕組みが無い。
+ * まとめてダウンロードの実行中に解除/ロックが切り替わると（`main.ts` の
+ * `SESSION_CHANGE_EVENT` リスナーが `refreshRoute()` で同じ `/` を再描画する）、
+ * 新しいクロージャ（新しい `filters`/`selected`/`bulkInProgress`）が生まれる一方、
+ * 古いクロージャの `bulkDownload().finally()` は後から古い `redraw` を呼び続ける。
+ * 何もしないと、新しく描き直した画面を古い絞り込み・選択状態で上書きしてしまう
+ * （8/13のレビューで指摘）。
+ */
+let activeSession = 0;
+
 export function renderDocumentList(): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
+
+  const session = ++activeSession;
 
   let filters = defaultFilters();
   /** 関連文書パネル（F-06）の対象。行を選ぶまでは null */
@@ -74,6 +90,8 @@ export function renderDocumentList(): void {
   app.innerHTML = pageTemplate(filters);
 
   const redraw = (): void => {
+    // 別の描画（別のタブ遷移・SESSION_CHANGEによる再描画）に置き換わっていたら何もしない
+    if (session !== activeSession) return;
     renderTable(app, filters, selected);
     renderRelatedPanel(app, selected);
     renderBulkButtons(app, filters, bulkInProgress);
@@ -250,8 +268,18 @@ function bindEvents(app: HTMLElement, handlers: Handlers): void {
       const doc = button.dataset.doc === undefined ? undefined : findByDocumentNo(button.dataset.doc);
       const fileType = button.dataset.fileType;
       const mode = button.dataset.mode;
-      if (doc !== undefined && (fileType === 'pdf' || fileType === 'excel') && (mode === 'view' || mode === 'download')) {
-        void handleFileAction(doc, fileType, mode);
+      if (
+        !button.disabled &&
+        doc !== undefined &&
+        (fileType === 'pdf' || fileType === 'excel') &&
+        (mode === 'view' || mode === 'download')
+      ) {
+        // 連打で同じリクエストが二重に飛ぶのを防ぐ（まとめてダウンロードの bulkInProgress と同じ理由）。
+        // ボタン単位でよい — 別の行・別の種別の操作までは止めない
+        button.disabled = true;
+        void handleFileAction(doc, fileType, mode).finally(() => {
+          button.disabled = false;
+        });
       }
       return;
     }
