@@ -7,6 +7,8 @@
 import type {
   DocumentRecord,
   DocumentStatus,
+  DownloadDisposition,
+  FileType,
   MasterCategory,
   MasterRecord,
 } from '../../../shared/types';
@@ -58,13 +60,23 @@ export function renderDocumentList(): void {
   let filters = defaultFilters();
   /** 関連文書パネル（F-06）の対象。行を選ぶまでは null */
   let selected: DocumentRecord | null = null;
+  /**
+   * まとめてダウンロードの実行中フラグ（8/12のレビューで発見）。
+   *
+   * `renderBulkButtons` は本来「件数が0件かどうか」だけでボタンの disabled を決めるが、
+   * それだけだと実行中に他の redraw（絞り込み変更・行選択）が挟まった瞬間、
+   * 件数はそのままなのでボタンが再度押せる状態に戻ってしまう。
+   * 押すと重複した非同期ループが同時に走り、同じファイルを二重に取得する。
+   * このフラグを毎回の `redraw` に渡すことで、実行中は必ず disabled を保つ。
+   */
+  let bulkInProgress = false;
 
   app.innerHTML = pageTemplate(filters);
 
   const redraw = (): void => {
     renderTable(app, filters, selected);
     renderRelatedPanel(app, selected);
-    renderBulkButtons(app, filters);
+    renderBulkButtons(app, filters, bulkInProgress);
   };
 
   bindEvents(app, {
@@ -81,7 +93,13 @@ export function renderDocumentList(): void {
     },
     onExport: () => exportCsv(filters),
     onBulkDownload: (fileType) => {
-      void bulkDownload(app, filters, fileType);
+      if (bulkInProgress) return;
+      bulkInProgress = true;
+      redraw();
+      void bulkDownload(filters, fileType).finally(() => {
+        bulkInProgress = false;
+        redraw();
+      });
     },
   });
 
@@ -413,7 +431,7 @@ type FileMode = 'view' | 'download';
  * `productCode` を添えるのは、文書番号だけでは台帳のPK（製品コード）が
  * 導出できないため（製品単位/工程単位で位置が違う。backend/src/routes/downloadUrl.ts と同じ理由）。
  */
-function downloadUrlPath(doc: DocumentRecord, fileType: FileType, disposition: 'inline' | 'attachment'): string {
+function downloadUrlPath(doc: DocumentRecord, fileType: FileType, disposition: DownloadDisposition): string {
   const params = new URLSearchParams({ fileType, productCode: doc.productCode, disposition });
   return `/documents/${encodeURIComponent(doc.documentNo)}/download-url?${params.toString()}`;
 }
@@ -435,7 +453,7 @@ function triggerDownload(url: string): void {
 
 /** 行の `[PDF閲覧]` `[PDFダウンロード]` `[エクセルダウンロード]` の共通処理 */
 async function handleFileAction(doc: DocumentRecord, fileType: FileType, mode: FileMode): Promise<void> {
-  const disposition = mode === 'view' ? 'inline' : 'attachment';
+  const disposition: DownloadDisposition = mode === 'view' ? 'inline' : 'attachment';
   const result = await apiGet(downloadUrlPath(doc, fileType, disposition), isDownloadUrlResponse);
 
   if (!result.ok) {
@@ -443,12 +461,22 @@ async function handleFileAction(doc: DocumentRecord, fileType: FileType, mode: F
     return;
   }
 
-  // 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので、
-  // ポップアップブロックにはほぼ引っかからない（まとめてダウンロードのようなループとは違う）
-  if (mode === 'view') {
-    window.open(result.data.url, '_blank', 'noopener');
-  } else {
+  if (mode === 'download') {
     triggerDownload(result.data.url);
+    return;
+  }
+
+  /**
+   * 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので、
+   * まとめてダウンロードのようなループに比べればポップアップブロックの対象になりにくいが、
+   * 直前に `await` を挟んでいる（＝ユーザー操作からの直接呼び出しではない）ため、
+   * 回線が遅い・Lambdaのコールドスタートで応答が遅れた場合はブロックされうる
+   * （特にSafariは判定が厳しい。8/12のレビューで指摘）。`window.open` の戻り値が
+   * `null` ならブロックされているので、無言で終わらせず案内する。
+   */
+  const win = window.open(result.data.url, '_blank', 'noopener');
+  if (win === null) {
+    window.alert('ポップアップがブロックされました。ブラウザの設定で許可してから、もう一度お試しください。');
   }
 }
 
@@ -567,8 +595,6 @@ function exportCsv(filters: Filters): void {
 // まとめてダウンロード
 // ---------------------------------------------------------------------------
 
-type FileType = 'pdf' | 'excel';
-
 /**
  * 一度に落とせる件数の上限。
  *
@@ -596,13 +622,20 @@ function bulkTargets(filters: Filters, fileType: FileType): DocumentRecord[] {
   });
 }
 
-/** 押す前に件数が分かるようにボタン自体に出す。押してから件数を知るのでは遅い */
-function renderBulkButtons(app: HTMLElement, filters: Filters): void {
+/**
+ * 押す前に件数が分かるようにボタン自体に出す。押してから件数を知るのでは遅い。
+ *
+ * `inProgress` は実行中かどうか（8/12のレビューで追加）。**件数だけで disabled を
+ * 決めると、実行中に他の理由で redraw が走った瞬間にボタンが再度押せる状態へ戻り、
+ * 二重に非同期ループが走ってしまう。** 呼び出し側（`renderDocumentList` の `redraw`）が
+ * 実行中フラグを毎回渡すことで、件数に関係なく実行中は必ず disabled を保つ。
+ */
+function renderBulkButtons(app: HTMLElement, filters: Filters, inProgress: boolean): void {
   const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
   if (pdfButton) {
     const count = bulkTargets(filters, 'pdf').length;
     pdfButton.textContent = `PDFをまとめてダウンロード（${count}件）`;
-    pdfButton.disabled = count === 0;
+    pdfButton.disabled = inProgress || count === 0;
   }
 
   const excelButton = app.querySelector<HTMLButtonElement>('#bulk-excel');
@@ -611,7 +644,7 @@ function renderBulkButtons(app: HTMLElement, filters: Filters): void {
     // エクセルは解除時のみ（対象0件のときは押せる意味がないので隠す）
     excelButton.hidden = !isUnlocked();
     excelButton.textContent = `エクセルをまとめてダウンロード（${count}件）`;
-    excelButton.disabled = count === 0;
+    excelButton.disabled = inProgress || count === 0;
   }
 }
 
@@ -625,8 +658,12 @@ function renderBulkButtons(app: HTMLElement, filters: Filters): void {
  * ダウンロードしますか」という確認を一度だけ出すことがある（Chrome/Edgeの標準機能）ため、
  * 開始前に案内する。「ポップアップブロックを解除してください」より、
  * 「画面上部の確認で[許可]を押す」のほうが操作に迷わない（8/12、利用者の指摘）。
+ *
+ * **実行中のボタンのdisabled管理はこの関数の責務にしない。** 呼び出し側
+ * （`renderDocumentList` の `onBulkDownload`）が実行中フラグを持ち、
+ * `redraw` を通して disabled を反映する（8/12のレビューで見つかった二重起動バグの対策）。
  */
-async function bulkDownload(app: HTMLElement, filters: Filters, fileType: FileType): Promise<void> {
+async function bulkDownload(filters: Filters, fileType: FileType): Promise<void> {
   const targets = bulkTargets(filters, fileType);
   const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
 
@@ -645,8 +682,6 @@ async function bulkDownload(app: HTMLElement, filters: Filters, fileType: FileTy
       '[許可]を選んでください。',
   );
 
-  setBulkButtonsDisabled(app, true);
-
   let failed = 0;
   for (const doc of targets) {
     const result = await apiGet(downloadUrlPath(doc, fileType, 'attachment'), isDownloadUrlResponse);
@@ -657,17 +692,7 @@ async function bulkDownload(app: HTMLElement, filters: Filters, fileType: FileTy
     triggerDownload(result.data.url);
   }
 
-  // 件数は変わっていないはずだが、disabled の状態を確実に元へ戻す
-  renderBulkButtons(app, filters);
-
   if (failed > 0) {
     window.alert(`${failed}件は取得できませんでした。時間をおいて再度お試しください。`);
   }
-}
-
-function setBulkButtonsDisabled(app: HTMLElement, disabled: boolean): void {
-  const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
-  const excelButton = app.querySelector<HTMLButtonElement>('#bulk-excel');
-  if (pdfButton) pdfButton.disabled = disabled;
-  if (excelButton) excelButton.disabled = disabled;
 }

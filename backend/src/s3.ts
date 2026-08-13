@@ -20,6 +20,7 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { DownloadDisposition } from '../../shared/types';
 import { config } from './config';
 import { CONTENT_TYPE, fileNameFor, type FileType } from './s3Key';
 
@@ -135,8 +136,11 @@ export const DOWNLOAD_URL_TTL_SECONDS = 900;
  * PDFだけこの2つを画面が選べるようにする（S-1 の `[PDF閲覧]` / `[PDFダウンロード]`）。
  * エクセルは常に `attachment`（ブラウザに表示手段が無いのでどちらでも実質ダウンロードになるが、
  * 画面側は `attachment` しか要求しない。8/12 の利用者の指摘）。
+ *
+ * **型は shared/types.ts が正。** 画面がクエリの値（`disposition=inline|attachment`）を
+ * 組み立てるのに同じ型を使うため（8/12のレビュー指摘）。
  */
-export type DownloadDisposition = 'inline' | 'attachment';
+export type { DownloadDisposition };
 
 /**
  * 1つのキーに対する閲覧・ダウンロード用URLを発行する（presigned GET）。

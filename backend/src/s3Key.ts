@@ -22,8 +22,18 @@
  * （`POST /masters`・`PATCH /masters/{id}` が弾いている。CLAUDE.md §4）。
  */
 
-/** 台帳の `s3KeyPdf` / `s3KeyExcel` に対応する2種別。CLAUDE.md §3 が許容する拡張子もこの2つだけ */
-export type FileType = 'pdf' | 'excel';
+import type { FileType } from '../../shared/types';
+
+/**
+ * 台帳の `s3KeyPdf` / `s3KeyExcel` に対応する2種別。CLAUDE.md §3 が許容する拡張子もこの2つだけ。
+ *
+ * **型そのものは shared/types.ts が正**（画面（S-1・S-5）もサーバーも参照するため。CLAUDE.md §7、
+ * 8/12のレビューでフロント・バックエンドが独自に同じunionを再定義していると指摘された）。
+ * ここでは import 元を変えずに済むよう re-export するだけにとどめる。
+ * このファイルの他の実体（`buildS3Key` など）は従来どおり shared に置かない
+ * （8/10の決定「実体をどこに置くかはサーバーが決める。画面に決めさせない」は変えていない）。
+ */
+export type { FileType };
 
 export const FILE_TYPES: readonly FileType[] = ['pdf', 'excel'];
 
