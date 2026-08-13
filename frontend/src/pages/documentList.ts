@@ -84,8 +84,14 @@ export function renderDocumentList(): void {
    * 件数はそのままなのでボタンが再度押せる状態に戻ってしまう。
    * 押すと重複した非同期ループが同時に走り、同じファイルを二重に取得する。
    * このフラグを毎回の `redraw` に渡すことで、実行中は必ず disabled を保つ。
+   * 準備中の表示（「準備中…」）にも使う（8/13の実機確認で追加）。
    */
   let bulkInProgress = false;
+  /**
+   * まとめてダウンロードの準備結果（8/13、自動連続ダウンロード方式を廃止した際に追加）。
+   * `selected` と同様、絞り込みを変えたら `null` に戻す（対象の行が変わるため）。
+   */
+  let bulkResult: BulkDownloadResult | null = null;
 
   app.innerHTML = pageTemplate(filters);
 
@@ -95,6 +101,7 @@ export function renderDocumentList(): void {
     renderTable(app, filters, selected);
     renderRelatedPanel(app, selected);
     renderBulkButtons(app, filters, bulkInProgress);
+    renderBulkResult(app, bulkResult, bulkInProgress);
   };
 
   bindEvents(app, {
@@ -102,6 +109,8 @@ export function renderDocumentList(): void {
       filters = next;
       // 絞り込みを変えたら選択を解除する。表から消えた行のパネルが残ると対応が分からなくなる
       selected = null;
+      // 対象の行が変わるので、古い準備結果（別の絞り込みで取ったURL一覧）も消す
+      bulkResult = null;
       redraw();
     },
     onSelect: (doc) => {
@@ -113,11 +122,21 @@ export function renderDocumentList(): void {
     onBulkDownload: (fileType) => {
       if (bulkInProgress) return;
       bulkInProgress = true;
+      bulkResult = null;
       redraw();
-      void bulkDownload(filters, fileType).finally(() => {
-        bulkInProgress = false;
-        redraw();
-      });
+
+      void prepareBulkDownload(session, filters, fileType)
+        .then((result) => {
+          // 準備が終わる頃には別の画面に切り替わっているかもしれない。
+          // その場合は結果を持っていても表示させない（redraw側の確認と合わせて二重に守る）
+          if (session !== activeSession) return;
+          bulkResult = result;
+        })
+        .finally(() => {
+          bulkInProgress = false;
+          if (session !== activeSession) return;
+          redraw();
+        });
     },
   });
 
@@ -141,6 +160,7 @@ function pageTemplate(filters: Filters): string {
         </div>
       </div>
     </form>
+    <div id="bulk-download-result"></div>
     <table class="document-table">
       <thead>
         <tr>
@@ -662,7 +682,7 @@ function renderBulkButtons(app: HTMLElement, filters: Filters, inProgress: boole
   const pdfButton = app.querySelector<HTMLButtonElement>('#bulk-pdf');
   if (pdfButton) {
     const count = bulkTargets(filters, 'pdf').length;
-    pdfButton.textContent = `PDFをまとめてダウンロード（${count}件）`;
+    pdfButton.textContent = `PDFダウンロード一覧を表示（${count}件）`;
     pdfButton.disabled = inProgress || count === 0;
   }
 
@@ -671,56 +691,144 @@ function renderBulkButtons(app: HTMLElement, filters: Filters, inProgress: boole
     const count = bulkTargets(filters, 'excel').length;
     // エクセルは解除時のみ（対象0件のときは押せる意味がないので隠す）
     excelButton.hidden = !isUnlocked();
-    excelButton.textContent = `エクセルをまとめてダウンロード（${count}件）`;
+    excelButton.textContent = `エクセルダウンロード一覧を表示（${count}件）`;
     excelButton.disabled = inProgress || count === 0;
   }
 }
 
+/** 準備できたファイル1件（文書番号と署名付きURL） */
+type BulkDownloadReady = { doc: DocumentRecord; url: string };
+/** 取得できなかったファイル1件（文書番号と理由） */
+type BulkDownloadFailed = { doc: DocumentRecord; message: string };
+
+type BulkDownloadResult = {
+  fileType: FileType;
+  ready: BulkDownloadReady[];
+  failed: BulkDownloadFailed[];
+};
+
 /**
- * 対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、得たURLを順に
- * ダウンロードさせる（`disposition=attachment` 固定。新しいAPIは要らない）。
+ * 対象1件ずつ `GET /documents/{docNo}/download-url` を呼び、結果を仕分けて返す
+ * （`disposition=attachment` 固定。新しいAPIは要らない）。
  * エクセル・旧版のアクセスログ（CLAUDE.md §8-7）もファイル単位で残る。
  *
- * 新しいタブは一切開かない（`triggerDownload` は現在の画面のまま保存させる）ので
- * ポップアップブロックの対象にならない。代わりにブラウザが「複数のファイルを
- * ダウンロードしますか」という確認を一度だけ出すことがある（Chrome/Edgeの標準機能）ため、
- * 開始前に案内する。「ポップアップブロックを解除してください」より、
- * 「画面上部の確認で[許可]を押す」のほうが操作に迷わない（8/12、利用者の指摘）。
+ * **自動でダウンロードは開始しない。** 以前は取得したURLを `triggerDownload` で
+ * 連続実行していたが、実機（Chrome・Firefox）で確認したところ、`download-url` の
+ * 呼び出し自体は全件200で成功するにもかかわらず、ブラウザが「複数の自動ダウンロード」を
+ * 検知して一部の保存を無音でブロック・破棄することが分かった。DevTools の Network タブで見ると、
+ * 通信自体が200で終わっていても保存されないケースがあり、**JavaScript側には
+ * 「保存されたかどうか」を確認する手段が無い**（8/13、実機確認）。
+ * そのため自動連続保存はやめ、URLを一覧表示して利用者が1件ずつ `<a href>` を
+ * クリックする方式にした（Issue #25）。1クリック＝1ファイルの通常の操作になるので、
+ * ブラウザ側の自動ダウンロード対策の対象にならない。
  *
- * **実行中のボタンのdisabled管理はこの関数の責務にしない。** 呼び出し側
- * （`renderDocumentList` の `onBulkDownload`）が実行中フラグを持ち、
- * `redraw` を通して disabled を反映する（8/12のレビューで見つかった二重起動バグの対策）。
+ * **実行中のボタンのdisabled管理・結果の保持はこの関数の責務にしない。** 呼び出し側
+ * （`renderDocumentList` の `onBulkDownload`）が状態を持ち、`redraw` を通して反映する
+ * （8/12のレビューで見つかった二重起動バグの対策と同じ考え方）。
+ *
+ * `session` は非同期処理の再開時に「まだこの画面を見ているか」を確認するための目印
+ * （`documentUpload.ts` の `activeSession` と同じパターン）。解除/ロックの切り替えなどで
+ * 画面が描き直されていたら、残りの取得を打ち切る — 見えなくなった結果のために
+ * Lambda呼び出しとアクセスログを積み増す意味が無いため（8/13、利用者の指摘）。
  */
-async function bulkDownload(filters: Filters, fileType: FileType): Promise<void> {
+async function prepareBulkDownload(
+  session: number,
+  filters: Filters,
+  fileType: FileType,
+): Promise<BulkDownloadResult | null> {
   const targets = bulkTargets(filters, fileType);
-  const label = fileType === 'pdf' ? 'PDF' : 'エクセル';
 
   if (targets.length > BULK_DOWNLOAD_LIMIT) {
     window.alert(
-      `一度にダウンロードできるのは${BULK_DOWNLOAD_LIMIT}件までです` +
+      `一度に一覧を作れるのは${BULK_DOWNLOAD_LIMIT}件までです` +
         `（現在 ${targets.length}件）。絞り込んでから実行してください。`,
     );
+    return null;
+  }
+  if (targets.length === 0) return null;
+
+  const ready: BulkDownloadReady[] = [];
+  const failed: BulkDownloadFailed[] = [];
+
+  for (const doc of targets) {
+    // 準備の途中で画面が切り替わっていたら、残りは取得せず打ち切る
+    if (session !== activeSession) break;
+
+    const result = await apiGet(downloadUrlPath(doc, fileType, 'attachment'), isDownloadUrlResponse);
+    if (result.ok) {
+      ready.push({ doc, url: result.data.url });
+    } else {
+      failed.push({ doc, message: result.message });
+    }
+  }
+
+  return { fileType, ready, failed };
+}
+
+/**
+ * まとめてダウンロードの結果パネル。`inProgress` の間は「準備中…」を出す
+ * （8/13、事前の `window.alert` 案内をやめた代わりに、進行中であることを画面に出す）。
+ */
+function renderBulkResult(app: HTMLElement, result: BulkDownloadResult | null, inProgress: boolean): void {
+  const panel = app.querySelector<HTMLElement>('#bulk-download-result');
+  if (!panel) return;
+
+  if (inProgress) {
+    panel.innerHTML = '<p class="form-note">準備中…</p>';
     return;
   }
-  if (targets.length === 0) return;
 
-  window.alert(
-    `${label}を${targets.length}件ダウンロードします。\n` +
-      'ブラウザの画面上部に「複数のファイルをダウンロードしますか」という確認が表示されたら、' +
-      '[許可]を選んでください。',
-  );
-
-  let failed = 0;
-  for (const doc of targets) {
-    const result = await apiGet(downloadUrlPath(doc, fileType, 'attachment'), isDownloadUrlResponse);
-    if (!result.ok) {
-      failed++;
-      continue;
-    }
-    triggerDownload(result.data.url);
+  if (result === null) {
+    panel.innerHTML = '';
+    return;
   }
 
-  if (failed > 0) {
-    window.alert(`${failed}件は取得できませんでした。時間をおいて再度お試しください。`);
-  }
+  const label = result.fileType === 'pdf' ? 'PDF' : 'エクセル';
+
+  const readyRows = result.ready
+    .map(
+      ({ doc, url }) => `
+        <tr>
+          <td>${escapeHtml(doc.documentNo)}</td>
+          <td>
+            <a class="btn-row-link" href="${escapeHtml(url)}" target="_blank" rel="noopener">ダウンロード</a>
+          </td>
+        </tr>
+      `,
+    )
+    .join('');
+
+  const failedSection =
+    result.failed.length === 0
+      ? ''
+      : `
+        <p class="form-error">取得できなかったファイル</p>
+        <table class="related-table">
+          <tbody>
+            ${result.failed
+              .map(
+                ({ doc, message }) => `
+                  <tr>
+                    <td>${escapeHtml(doc.documentNo)}</td>
+                    <td class="form-error">${escapeHtml(message)}</td>
+                  </tr>
+                `,
+              )
+              .join('')}
+          </tbody>
+        </table>
+      `;
+
+  panel.innerHTML = `
+    <div class="bulk-result">
+      <p class="form-note">
+        ${result.ready.length}件の${label}を準備しました。各行の[ダウンロード]を押してください。
+        署名付きURLの有効期限は15分です。
+      </p>
+      <table class="related-table">
+        <tbody>${readyRows}</tbody>
+      </table>
+      ${failedSection}
+    </div>
+  `;
 }
