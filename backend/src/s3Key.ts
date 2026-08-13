@@ -22,8 +22,18 @@
  * （`POST /masters`・`PATCH /masters/{id}` が弾いている。CLAUDE.md §4）。
  */
 
-/** 台帳の `s3KeyPdf` / `s3KeyExcel` に対応する2種別。CLAUDE.md §3 が許容する拡張子もこの2つだけ */
-export type FileType = 'pdf' | 'excel';
+import type { FileType } from '../../shared/types';
+
+/**
+ * 台帳の `s3KeyPdf` / `s3KeyExcel` に対応する2種別。CLAUDE.md §3 が許容する拡張子もこの2つだけ。
+ *
+ * **型そのものは shared/types.ts が正**（画面（S-1・S-5）もサーバーも参照するため。CLAUDE.md §7、
+ * 8/12のレビューでフロント・バックエンドが独自に同じunionを再定義していると指摘された）。
+ * ここでは import 元を変えずに済むよう re-export するだけにとどめる。
+ * このファイルの他の実体（`buildS3Key` など）は従来どおり shared に置かない
+ * （8/10の決定「実体をどこに置くかはサーバーが決める。画面に決めさせない」は変えていない）。
+ */
+export type { FileType };
 
 export const FILE_TYPES: readonly FileType[] = ['pdf', 'excel'];
 
@@ -72,6 +82,16 @@ export function buildS3Key(productCode: string, documentNo: string, fileType: Fi
     throw new Error('S3キーの組み立てに必要な値が空です');
   }
   return `${productCode}/${documentNo}${EXTENSION[fileType]}`;
+}
+
+/**
+ * ダウンロード時にブラウザへ見せるファイル名（`{文書番号}.{拡張子}`）。
+ *
+ * S3キーの `{製品コード}/` の部分は利用者には無関係な内部構造なので含めない。
+ * 署名付きURLの `Content-Disposition` に載せる値の組み立てに使う（backend/src/s3.ts）。
+ */
+export function fileNameFor(documentNo: string, fileType: FileType): string {
+  return `${documentNo}${EXTENSION[fileType]}`;
 }
 
 export type ParsedS3Key = {

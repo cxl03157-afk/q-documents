@@ -71,7 +71,12 @@ export const handler = async (
     }
 
     const { route, params } = matched;
-    const base = { origin, body: event.body, params };
+    const base = {
+      origin,
+      body: event.body,
+      params,
+      query: event.queryStringParameters ?? {},
+    };
 
     /**
      * `auth` ごとに、トークンをどう扱うかを決める。

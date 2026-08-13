@@ -169,3 +169,25 @@ export type MasterRecord = {
  * 送れば足りるようにするため。少なくとも1項目は必須で、ハンドラ側で検証する。
  */
 export type MasterPatch = Partial<Pick<MasterRecord, 'name' | 'status' | 'numberingRule' | 'isCommon'>>;
+
+// ---------------------------------------------------------------------------
+// ファイル（S3）
+// ---------------------------------------------------------------------------
+
+/**
+ * S3に置く2種別。CLAUDE.md §3 が許容する拡張子（.pdf / .xlsx）に対応する。
+ *
+ * **画面とサーバーの両方が使うため shared に置く**（backend/src/routes/createUploadUrl.ts の
+ * リクエスト・backend/src/routes/downloadUrl.ts のクエリ・frontend の S-5/S-1 が共通で使う値）。
+ * `s3Key.ts`（キーの組み立て）はサーバー側だけの実装なので backend に残すが、
+ * 値の集合そのものは両側が参照するので二重定義しない。
+ */
+export type FileType = 'pdf' | 'excel';
+
+/**
+ * 閲覧・ダウンロード用URLの `Content-Disposition`（F-11）。
+ *
+ * `inline` — ブラウザの既定動作に任せる（PDFは新しいタブでビューア表示）。「閲覧」用
+ * `attachment` — 必ずダウンロードとして保存させる。「ダウンロード」用・まとめてダウンロード用
+ */
+export type DownloadDisposition = 'inline' | 'attachment';

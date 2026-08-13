@@ -175,6 +175,13 @@ export function isUploadUrlResponse(value: unknown): value is UploadUrlResponse 
   );
 }
 
+/** `GET /documents/{docNo}/download-url` の応答（backend/src/s3.ts の createDownloadUrl） */
+export type DownloadUrlResponse = { url: string; expiresInSeconds: number };
+
+export function isDownloadUrlResponse(value: unknown): value is DownloadUrlResponse {
+  return isObject(value) && isNonEmptyString(value.url) && typeof value.expiresInSeconds === 'number';
+}
+
 export function readExisting(value: unknown): ExistingDocument | null {
   if (!isObject(value) || !isObject(value.existing)) return null;
 
