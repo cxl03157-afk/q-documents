@@ -905,4 +905,18 @@ Content-Dispositionの質問）→ 3回目（PDFの閲覧・ダウンロード�
 - チェックリストの#16（論理削除）・#21（合言葉なしでの修正・削除拒否）を✓に更新。
   **✓17 / △7 / ✗1** になった
 
-**この時点でPRはまだ未作成。** マージはPR作成後。
+**PR #28を作成 → CIグリーン確認。** 続けて利用者がローカルで`/code-review`を実行し、3件の指摘を受けた。
+
+| 指摘 | 対応 |
+| --- | --- |
+| `documentEdit.ts`の`save()`/`remove()`が、応答待ち中に別文書の画面へ移ると`isCurrentSession`判定が`upsertDocument()`より先に走り、**成功したPATCH/DELETEの結果がstoreへ一切反映されない**（画面上書き防止のためのセッション判定が、データ反映まで巻き込んでいた） | **反映。** `documentUpload.ts`の`pollUntilLatest`（store更新を先に行い、画面反映だけをセッションで絞る）と同じ順序に揃えた |
+| `updateDocument.ts`の`getDocument`と`loadMasters`が直列実行（8/14午前のセルフレビューでも同じ指摘があり見送っていたが、今回は反映） | **反映。** `Promise.all`に統合（`postUnlock`と同じパターン） |
+| `deleteDocument.ts`が`ALREADY_DELETED`を兄弟ルートハンドラ`updateDocument.ts`からimportしており、無関係な変更で壊れうる | **反映。** `ledger.ts`（「削除済み」の状態リテラルを既に持つ）へ定数を移動 |
+
+修正をコミット（`118e7a8`）→ push → CI再確認（グリーン）→ 再度`terraform apply`＋frontendデプロイ →
+backendのスモークテスト（PATCH正常系・削除済みへのPATCH409）で挙動が変わっていないことを確認。
+**フロントエンドの修正（store反映漏れ）はコードレビューで妥当性を確認したが、
+「応答待ち中に別画面へ移動する」という操作自体をブラウザで再現しての実機確認はしていない**
+（curlでは再現できない純粋なクライアント側の挙動のため）。
+
+**この時点でPRはマージ前。**
