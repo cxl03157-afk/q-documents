@@ -22,19 +22,19 @@ const EXPECTED = [
   { method: 'POST', path: '/documents/Q001_P-0001_01/revisions', auth: 'required' },
   { method: 'POST', path: '/documents/Q001_P-0001_01/upload-url', auth: 'required' },
   { method: 'GET', path: '/documents/Q001_P-0001_01/download-url', auth: 'conditional' },
+  { method: 'PATCH', path: '/documents/Q001_P-0001_01', auth: 'required' },
+  { method: 'DELETE', path: '/documents/Q001_P-0001_01', auth: 'required' },
 ] as const;
 
 /**
- * まだ実装していないエンドポイント（docs/API.md にはある）。
+ * **これで `docs/API.md` の12本がすべて実装済みになった**（F-13 で PATCH・DELETE を追加）。
  *
- * 実装したらここから EXPECTED へ移し、**docs/API.md の欄を見て** `auth` を書くこと。
- * 移さずに追加すると下の「表に載っているルートはすべて EXPECTED で確認済み」が落ちる。
+ * 以前あった「未実装のエンドポイント」の一覧はここから消した。
+ * 新しいエンドポイントを足すときは、**docs/API.md の「合言葉」欄を見て**
+ * 上の EXPECTED に1行加えること。加えないと
+ * 「表に載っているルートはすべて EXPECTED で確認済み」が落ちる。
  * それが狙いで、合言葉の指定を確認しないまま新しい書き込み口が開くのを防いでいる。
  */
-const NOT_IMPLEMENTED_YET = [
-  { method: 'PATCH', path: '/documents/Q001_P-0001_01' },
-  { method: 'DELETE', path: '/documents/Q001_P-0001_01' },
-] as const;
 
 describe('ルート表の合言葉の指定', () => {
   for (const { method, path, auth } of EXPECTED) {
@@ -119,9 +119,22 @@ describe('パスの照合', () => {
     expect(upload?.params.docNo).toBe('Q001_P-0001_01');
   });
 
-  it('未実装のエンドポイントはまだ一致しない', () => {
-    for (const { method, path } of NOT_IMPLEMENTED_YET) {
-      expect(matchRoute(method, path), `${method} ${path}`).toBeNull();
-    }
+  it('PATCH / DELETE /documents/{docNo} は docNo を取り出す（POST /documents と別物）', () => {
+    // POST /documents（新規発行）はパス変数を持たない。同じ `/documents` 始まりで
+    // メソッドだけが違うので、取り違えると採番の口が修正の口に化ける
+    expect(matchRoute('PATCH', '/documents/Q001_P-0001_01')?.params.docNo).toBe(
+      'Q001_P-0001_01',
+    );
+    expect(matchRoute('DELETE', '/documents/P-0001_K001_組立_仮_02')?.params.docNo).toBe(
+      'P-0001_K001_組立_仮_02',
+    );
+    expect(matchRoute('POST', '/documents')?.params.docNo).toBeUndefined();
+  });
+
+  it('PATCH / DELETE は文書番号が無いと一致しない', () => {
+    // 一致させると docNo が空のまま台帳を触りに行く
+    expect(matchRoute('PATCH', '/documents')).toBeNull();
+    expect(matchRoute('DELETE', '/documents')).toBeNull();
+    expect(matchRoute('DELETE', '/documents/')).toBeNull();
   });
 });

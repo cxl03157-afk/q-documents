@@ -112,6 +112,51 @@ export function findOwnerByName(
 }
 
 /**
+ * 担当者を「登録に使ってよい」ものだけに縛るときの文言（`POST /documents` などが使う）。
+ *
+ * 未登録と無効化を書き分けるのは `findOwnerByName` の説明のとおり。
+ * 直し方が正反対（マスタに追加する／別の人を選ぶ）なので同じ文言にしない。
+ */
+export function activeOwnerRejection(masters: MasterRecord[], owner: string): string | null {
+  const master = findOwnerByName(masters, owner);
+  if (master === undefined) return '担当者がマスタに登録されていません';
+  if (master.status !== '有効') {
+    return 'この担当者は無効化されています。有効な担当者を選んでください';
+  }
+  return null;
+}
+
+/**
+ * `PATCH /documents/{docNo}`（S-7）で担当者を受け付けてよいか。断る理由、無ければ null。
+ *
+ * **新規発行・リビジョンアップとは規律が違う。** あちらは常に「有効な担当者のみ」だが、
+ * 修正では**変更するときだけ**有効であることを求める。
+ *
+ * 境界は「新規発行か改訂か」ではなく **「利用者が選ぶ値か、引き継ぐ値か」**
+ * （docs/context.md 8/9 の決定）。S-7 で担当者を変えないなら、その氏名は
+ * 画面が選ばせた値ではなく既存レコードから引き継いだ値なので、
+ * 新規発行と同じ規律を当てる理由がない。
+ *
+ * 当ててしまうと、**担当者が退職して無効化されただけで、そのレコードの
+ * 文書発行日を直せなくなる**（直すには事実と違う担当者へ付け替えるしかない）。
+ * 無効化は新規発行を止める操作であって、過去の記録を書き換えさせる操作ではない
+ * （docs/context.md 8/6 の決定）。
+ *
+ * 逆に別の担当者へ**変える**なら、それは画面のプルダウンで選んだ値なので
+ * 新規発行と同じく有効なものだけに縛る。
+ */
+export function ownerChangeRejection(
+  masters: MasterRecord[],
+  currentOwner: string,
+  nextOwner: string,
+): string | null {
+  // 据え置きなら引き継ぐ値。マスタを引き直さない（無効化されていても通す）
+  if (nextOwner === currentOwner) return null;
+
+  return activeOwnerRejection(masters, nextOwner);
+}
+
+/**
  * 「工程単位の文書種類は1つまで」を破っていないか（`POST /masters`・`PATCH /masters/{id}`）。
  *
  * 工程単位の文書番号（`製品コード_工程番号_工程名_Rev`）は文書種類コードを含まない。

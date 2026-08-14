@@ -11,7 +11,7 @@
  */
 
 import type { APIGatewayProxyResult } from 'aws-lambda';
-import { findOwnerByName } from '../../../shared/masters';
+import { activeOwnerRejection } from '../../../shared/masters';
 import type { DocumentRecord } from '../../../shared/types';
 import { errorResponse, jsonResponse } from '../http';
 import { putNewDocument } from '../ledger';
@@ -50,16 +50,9 @@ export async function postDocument(context: AuthedContext): Promise<APIGatewayPr
    * 担当者の一覧と状態は `GET /masters` が誰にでも返しているので、
    * 書き分けても新しく漏れる情報はない。
    */
-  const ownerMaster = findOwnerByName(masters, owner);
-  if (ownerMaster === undefined) {
-    return errorResponse(context.origin, 400, '担当者がマスタに登録されていません');
-  }
-  if (ownerMaster.status !== '有効') {
-    return errorResponse(
-      context.origin,
-      400,
-      'この担当者は無効化されています。有効な担当者を選んでください',
-    );
+  const ownerRejection = activeOwnerRejection(masters, owner);
+  if (ownerRejection !== null) {
+    return errorResponse(context.origin, 400, ownerRejection);
   }
 
   const outcome = await resolveNewNumber(masters, context.body);

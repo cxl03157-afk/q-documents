@@ -44,7 +44,7 @@ export type ApiResult<T> =
 export const NETWORK_ERROR_STATUS = 0;
 
 type Options = {
-  method: 'GET' | 'POST' | 'PATCH';
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   /**
    * 解除中ならトークンを付けるか。
@@ -172,6 +172,14 @@ export function apiPatchAuthed<T>(
   isExpected: (value: unknown) => value is T
 ): Promise<ApiResult<T>> {
   return request(path, { method: 'PATCH', body, attachToken: true }, isExpected);
+}
+
+/** 合言葉が要る DELETE。本文を持たない（`DELETE /documents/{docNo}` 用） */
+export function apiDeleteAuthed<T>(
+  path: string,
+  isExpected: (value: unknown) => value is T
+): Promise<ApiResult<T>> {
+  return request(path, { method: 'DELETE', attachToken: true }, isExpected);
 }
 
 /** サーバーは失敗時に `{ message }` を返す（backend/src/http.ts） */

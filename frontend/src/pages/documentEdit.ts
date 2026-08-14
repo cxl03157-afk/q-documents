@@ -2,17 +2,31 @@
  * S-7 台帳の修正・論理削除（screens.md §5）。
  *
  * 誤登録レコードを直す（F-13）。編集できるのは担当者と文書発行日だけ。
- * 週2で `PATCH /documents/{docNo}` と `DELETE /documents/{docNo}` に接続する。
+ * `PATCH /documents/{docNo}` と `DELETE /documents/{docNo}` に接続済み。
  */
 
 import type { DocumentPatch, DocumentRecord } from '../../../shared/types';
+import { apiDeleteAuthed, apiPatchAuthed } from '../lib/api';
+import { isDocumentResponse } from '../lib/guards';
 import { escapeHtml } from '../lib/html';
-import { findDocument } from '../lib/store';
+import { findDocument, upsertDocument } from '../lib/store';
 import { activeMasters, findMaster } from '../lib/masters';
+
+/**
+ * 開くたびに増やす番号。PATCH・DELETE の応答待ちの間に別の画面へ移った場合に
+ * 「まだこの画面を見ているか」を判定する（documentUpload.ts と同じパターン）。
+ */
+let activeSession = 0;
+
+function isCurrentSession(session: number): boolean {
+  return session === activeSession;
+}
 
 export function renderDocumentEdit(documentNo: string): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
+
+  const session = ++activeSession;
 
   const doc = findDocument(documentNo);
   if (doc === undefined || doc.status === '削除済み') {
@@ -21,7 +35,7 @@ export function renderDocumentEdit(documentNo: string): void {
   }
 
   app.innerHTML = formPage(doc);
-  bindEvents(app, doc);
+  bindEvents(app, doc, session);
 }
 
 function formPage(doc: DocumentRecord): string {
@@ -82,32 +96,135 @@ function ownerOptions(currentOwner: string): string {
     .join('');
 }
 
-function bindEvents(app: HTMLElement, doc: DocumentRecord): void {
+function bindEvents(app: HTMLElement, doc: DocumentRecord, session: number): void {
   const form = app.querySelector<HTMLFormElement>('#edit-form');
   if (!form) return;
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
+    void save(app, form, doc, session);
+  });
 
-    // DocumentPatch は owner / issuedAt だけを持つ型なので、
-    // status や documentNo を渡す口がそもそも存在しない（shared/types.ts）
-    const patch: DocumentPatch = {
-      owner: fieldValue(form, 'owner'),
-      issuedAt: fieldValue(form, 'issuedAt'),
-    };
-    Object.assign(doc, patch);
+  app.querySelector<HTMLButtonElement>('#delete')?.addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    if (!(button instanceof HTMLButtonElement)) return;
+    void remove(app, doc, session);
+  });
+}
+
+/** クエリの組み立て。`productCode` は台帳のPKで、文書番号だけからは導けない（CLAUDE.md §4） */
+function query(doc: DocumentRecord): string {
+  return new URLSearchParams({ productCode: doc.productCode }).toString();
+}
+
+/**
+ * `[保存]`（`PATCH /documents/{docNo}`）。二重送信を防ぐため送信中は保存・論理削除の
+ * 両方のボタンを止める（`remove()` 側と対称にする。片方だけ止めると、応答待ちの間に
+ * もう片方が押せてしまい、同じレコードに PATCH と DELETE が競合しうる）。
+ */
+async function save(app: HTMLElement, form: HTMLFormElement, doc: DocumentRecord, session: number): Promise<void> {
+  // DocumentPatch は owner / issuedAt だけを持つ型なので、
+  // status や documentNo を渡す口がそもそも存在しない（shared/types.ts）
+  const patch: DocumentPatch = {
+    owner: fieldValue(form, 'owner'),
+    issuedAt: fieldValue(form, 'issuedAt'),
+  };
+
+  const saveButton = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const deleteButton = app.querySelector<HTMLButtonElement>('#delete');
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = '保存中…';
+  }
+  if (deleteButton) deleteButton.disabled = true;
+
+  const result = await apiPatchAuthed(
+    `/documents/${encodeURIComponent(doc.documentNo)}?${query(doc)}`,
+    patch,
+    isDocumentResponse,
+  );
+
+  if (!result.ok) {
+    // 待っている間に別の文書の画面へ移った場合、この画面はもう存在しない
+    if (!isCurrentSession(session)) return;
 
     const message = app.querySelector<HTMLElement>('#edit-message');
-    if (message) message.textContent = '保存しました。';
-  });
+    if (message) message.textContent = result.message;
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = '保存';
+    }
+    if (deleteButton) deleteButton.disabled = false;
+    return;
+  }
 
-  app.querySelector<HTMLButtonElement>('#delete')?.addEventListener('click', () => {
-    if (!window.confirm(`${doc.documentNo} を論理削除します。よろしいですか？`)) return;
+  /**
+   * **サーバーで確定した結果は、セッションが古くなっていても store へ反映する。**
+   * 画面表示だけをセッションで絞り、データの反映は絞らない
+   * （documentUpload.ts の `pollUntilLatest` と同じ方針）。逆にすると、
+   * 応答待ちの間に別文書へ移った利用者が戻ってきたとき、保存したはずの内容が
+   * 反映されておらず、サーバー側は既に更新済みなのに再送信すると理由なく失敗する。
+   */
+  upsertDocument(result.data.document);
+  if (!isCurrentSession(session)) return;
 
-    // 物理削除はしない。状態を「削除済み」にすると一覧から消える（CLAUDE.md §5）
-    doc.status = '削除済み';
-    location.hash = '#/';
-  });
+  const message = app.querySelector<HTMLElement>('#edit-message');
+  if (message) message.textContent = '保存しました。';
+  if (saveButton) {
+    saveButton.disabled = false;
+    saveButton.textContent = '保存';
+  }
+  if (deleteButton) deleteButton.disabled = false;
+}
+
+/**
+ * `[論理削除]`（`DELETE /documents/{docNo}`）。
+ *
+ * **この操作は取り消せない**（CLAUDE.md §5）ので確認で明示する。
+ * 成功しても一覧へは自動遷移せず、完了表示に切り替えて `[一覧へ戻る]` だけを残す
+ * （誤操作の直後に一覧へ飛ばすと、消したことに気づかないまま次の操作に移ってしまう）。
+ */
+async function remove(app: HTMLElement, doc: DocumentRecord, session: number): Promise<void> {
+  if (!window.confirm(`${doc.documentNo} を論理削除します。この操作は取り消せません。よろしいですか？`)) {
+    return;
+  }
+
+  // save() と対称に両方止める（理由は save() のコメントを参照）
+  const saveButton = app.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const deleteButton = app.querySelector<HTMLButtonElement>('#delete');
+  if (saveButton) saveButton.disabled = true;
+  if (deleteButton) deleteButton.disabled = true;
+
+  const result = await apiDeleteAuthed(
+    `/documents/${encodeURIComponent(doc.documentNo)}?${query(doc)}`,
+    isDocumentResponse,
+  );
+
+  if (!result.ok) {
+    // 待っている間に別の文書の画面へ移った場合、この画面はもう存在しない
+    if (!isCurrentSession(session)) return;
+
+    const message = app.querySelector<HTMLElement>('#edit-message');
+    if (message) message.textContent = result.message;
+    if (saveButton) saveButton.disabled = false;
+    if (deleteButton) deleteButton.disabled = false;
+    return;
+  }
+
+  // save() と同じ理由で、store への反映はセッションの新旧を問わず行う
+  upsertDocument(result.data.document);
+
+  // 今見ている画面（別文書かもしれない）を削除完了表示で上書きしてはいけない
+  if (!isCurrentSession(session)) return;
+  app.innerHTML = deletedPage(doc.documentNo);
+}
+
+function deletedPage(documentNo: string): string {
+  return `
+    <h1>台帳の修正</h1>
+    <p class="form-info" role="status">${escapeHtml(documentNo)} を論理削除しました。</p>
+    <p><a href="#/">一覧へ戻る</a></p>
+  `;
 }
 
 function fieldValue(form: HTMLFormElement, name: string): string {
