@@ -21,9 +21,8 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { buildSortKey } from '../../../shared/documentNo';
 import { errorResponse, jsonResponse } from '../http';
-import { getDocument, softDeleteDocument } from '../ledger';
+import { ALREADY_DELETED, getDocument, softDeleteDocument } from '../ledger';
 import type { AuthedContext } from './context';
-import { ALREADY_DELETED } from './updateDocument';
 
 export async function deleteDocument(context: AuthedContext): Promise<APIGatewayProxyResult> {
   const documentNo = context.params.docNo ?? '';

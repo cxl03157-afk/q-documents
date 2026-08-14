@@ -158,6 +158,18 @@ export async function putNewDocument(record: DocumentRecord): Promise<boolean> {
 }
 
 /**
+ * 既に論理削除されたレコードに触ろうとした場合の文言。
+ * `PATCH`・`DELETE /documents/{docNo}` の両ハンドラが返す（updateDocument.ts・deleteDocument.ts）。
+ *
+ * **ここに置くのは、`updateDocumentRecord`・`softDeleteDocument` の両方が
+ * 「対象が既に削除済みなら `null`」という同じ規約を持つため。** 兄弟のルートハンドラ同士が
+ * import し合う形（片方に定数を書いて他方が読む）は、どちらか一方をリネーム・分割したときに
+ * もう一方が無関係な理由で壊れる。状態リテラル `'削除済み'` を既に持つこのファイルに置けば、
+ * 「削除済みとは何か」の定義が1か所にまとまる。
+ */
+export const ALREADY_DELETED = 'この文書は既に論理削除されています';
+
+/**
  * S-7 の修正（`PATCH /documents/{docNo}`）。更新後のレコードを返す。
  * 対象が無い、または既に削除済みなら `null`。
  *

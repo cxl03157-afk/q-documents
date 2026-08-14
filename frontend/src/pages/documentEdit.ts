@@ -144,12 +144,11 @@ async function save(app: HTMLElement, form: HTMLFormElement, doc: DocumentRecord
     isDocumentResponse,
   );
 
-  // 待っている間に別の文書の画面へ移った場合、この画面はもう存在しない
-  if (!isCurrentSession(session)) return;
-
-  const message = app.querySelector<HTMLElement>('#edit-message');
-
   if (!result.ok) {
+    // 待っている間に別の文書の画面へ移った場合、この画面はもう存在しない
+    if (!isCurrentSession(session)) return;
+
+    const message = app.querySelector<HTMLElement>('#edit-message');
     if (message) message.textContent = result.message;
     if (saveButton) {
       saveButton.disabled = false;
@@ -159,7 +158,17 @@ async function save(app: HTMLElement, form: HTMLFormElement, doc: DocumentRecord
     return;
   }
 
+  /**
+   * **サーバーで確定した結果は、セッションが古くなっていても store へ反映する。**
+   * 画面表示だけをセッションで絞り、データの反映は絞らない
+   * （documentUpload.ts の `pollUntilLatest` と同じ方針）。逆にすると、
+   * 応答待ちの間に別文書へ移った利用者が戻ってきたとき、保存したはずの内容が
+   * 反映されておらず、サーバー側は既に更新済みなのに再送信すると理由なく失敗する。
+   */
   upsertDocument(result.data.document);
+  if (!isCurrentSession(session)) return;
+
+  const message = app.querySelector<HTMLElement>('#edit-message');
   if (message) message.textContent = '保存しました。';
   if (saveButton) {
     saveButton.disabled = false;
@@ -191,11 +200,10 @@ async function remove(app: HTMLElement, doc: DocumentRecord, session: number): P
     isDocumentResponse,
   );
 
-  // 待っている間に別の文書の画面へ移った場合、削除は成立しているが
-  // 今見ている画面（別文書かもしれない）を上書きしてはいけない
-  if (!isCurrentSession(session)) return;
-
   if (!result.ok) {
+    // 待っている間に別の文書の画面へ移った場合、この画面はもう存在しない
+    if (!isCurrentSession(session)) return;
+
     const message = app.querySelector<HTMLElement>('#edit-message');
     if (message) message.textContent = result.message;
     if (saveButton) saveButton.disabled = false;
@@ -203,7 +211,11 @@ async function remove(app: HTMLElement, doc: DocumentRecord, session: number): P
     return;
   }
 
+  // save() と同じ理由で、store への反映はセッションの新旧を問わず行う
   upsertDocument(result.data.document);
+
+  // 今見ている画面（別文書かもしれない）を削除完了表示で上書きしてはいけない
+  if (!isCurrentSession(session)) return;
   app.innerHTML = deletedPage(doc.documentNo);
 }
 

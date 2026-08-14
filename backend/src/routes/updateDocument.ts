@@ -25,13 +25,10 @@ import { buildSortKey } from '../../../shared/documentNo';
 import { ownerChangeRejection } from '../../../shared/masters';
 import type { DocumentPatch } from '../../../shared/types';
 import { errorResponse, jsonResponse } from '../http';
-import { getDocument, updateDocumentRecord } from '../ledger';
+import { ALREADY_DELETED, getDocument, updateDocumentRecord } from '../ledger';
 import { loadMasters } from '../masters';
 import { isValidIssuedAt, parseJsonObject, requiredString } from '../validate';
 import type { AuthedContext } from './context';
-
-/** 既に消えているものを直そうとした場合の文言。DELETE 側と揃える */
-export const ALREADY_DELETED = 'この文書は既に論理削除されています';
 
 export async function patchDocument(context: AuthedContext): Promise<APIGatewayProxyResult> {
   const documentNo = context.params.docNo ?? '';
@@ -68,14 +65,16 @@ export async function patchDocument(context: AuthedContext): Promise<APIGatewayP
   }
 
   /**
-   * 現在のレコードを先に読む。**担当者の判定に「今の担当者が誰か」が要る**ため。
+   * 現在のレコードとマスタは互いに依存しないので、`Promise.all` で並行に読む
+   * （`postUnlock` と同じ理由・8/9の決定）。**担当者の判定に「今の担当者が誰か」が要る**ため
+   * `current` は要るが、`masters` はその結果を待たずに取り始めてよい。
    *
    * `documentNo` の一致まで見るのは、`productCode` がクエリで来るから。
    * SK は文書番号から導けるが PK は導けない（`Q001_P-0001_01` は製品単位なら
    * 製品コード `P-0001`、工程単位として読めば `Q001`・CLAUDE.md §4）ので、
    * 別の製品コードを添えて別レコードを掴ませない。
    */
-  const current = await getDocument(productCode, sortKey);
+  const [current, masters] = await Promise.all([getDocument(productCode, sortKey), loadMasters()]);
   if (current === undefined || current.documentNo !== documentNo) {
     return errorResponse(context.origin, 404, 'この文書番号は台帳に登録されていません');
   }
@@ -89,7 +88,6 @@ export async function patchDocument(context: AuthedContext): Promise<APIGatewayP
    * 新規発行・リビジョンアップの「常に有効のみ」とは規律が違う。据え置きなら
    * 引き継ぐ値なので、担当者が退職して無効化されていても発行日だけ直せる。
    */
-  const masters = await loadMasters();
   const rejection = ownerChangeRejection(masters, current.owner, owner);
   if (rejection !== null) {
     return errorResponse(context.origin, 400, rejection);
