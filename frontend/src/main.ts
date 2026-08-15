@@ -8,6 +8,7 @@ import { renderDocumentRevise } from './pages/documentRevise';
 import { renderDocumentUpload } from './pages/documentUpload';
 import { renderDocumentEdit } from './pages/documentEdit';
 import { renderMasters } from './pages/masters';
+import { renderPassphrase } from './pages/passphrase';
 import { SESSION_CHANGE_EVENT } from './auth/session';
 import { requireUnlock } from './auth/guard';
 import { startAutoLock } from './auth/autoLock';
@@ -63,6 +64,15 @@ addRoute(
   requireUnlock(() => {
     renderHeader();
     renderMasters();
+  }),
+);
+
+// S-8 合言葉の変更（F-20）。解除中の利用者だけが開ける
+addRoute(
+  '/passphrase',
+  requireUnlock(() => {
+    renderHeader();
+    renderPassphrase();
   }),
 );
 

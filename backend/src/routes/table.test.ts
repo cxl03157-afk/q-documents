@@ -13,6 +13,7 @@ import { matchRoute, routes } from './table';
  */
 const EXPECTED = [
   { method: 'POST', path: '/auth/unlock', auth: 'public' },
+  { method: 'POST', path: '/auth/passphrase', auth: 'required' },
   { method: 'GET', path: '/masters', auth: 'public' },
   { method: 'POST', path: '/masters', auth: 'required' },
   { method: 'PATCH', path: '/masters/文書種類#Q001', auth: 'required' },
@@ -27,7 +28,7 @@ const EXPECTED = [
 ] as const;
 
 /**
- * **これで `docs/API.md` の12本がすべて実装済みになった**（F-13 で PATCH・DELETE を追加）。
+ * **`docs/API.md` の13本がすべて実装済み**（F-13 で PATCH・DELETE、F-20 で合言葉の変更を追加）。
  *
  * 以前あった「未実装のエンドポイント」の一覧はここから消した。
  * 新しいエンドポイントを足すときは、**docs/API.md の「合言葉」欄を見て**

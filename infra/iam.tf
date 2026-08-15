@@ -94,10 +94,19 @@ data "aws_iam_policy_document" "api" {
     resources = ["${aws_s3_bucket.files.arn}/*"]
   }
 
-  # 合言葉とトークン署名鍵の読み出し（F-18）。この2つ以外は読めない
+  /**
+   * 合言葉とトークン署名鍵の読み書き（F-18 / F-20）。この2つ以外には触れない。
+   *
+   * PutParameter は合言葉の変更（F-20）で要る。変更時は署名鍵も同時に回すため、
+   * 2つとも書き込み対象になる。**他のパラメータは含めない** — このロールが
+   * 書き換えてよいのは、自分が読んでいるこの2つだけ。
+   */
   statement {
-    sid     = "ReadUnlockSecrets"
-    actions = ["ssm:GetParameter"]
+    sid = "UnlockSecretsReadWrite"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:PutParameter",
+    ]
     resources = [
       aws_ssm_parameter.passphrase.arn,
       aws_ssm_parameter.token_secret.arn,
@@ -105,12 +114,20 @@ data "aws_iam_policy_document" "api" {
   }
 
   /**
-   * SecureString の復号。AWS 管理キー（alias/aws/ssm）は ARN を参照できないため
+   * SecureString の復号と暗号化。AWS 管理キー（alias/aws/ssm）は ARN を参照できないため
    * resources を絞れない。代わりに「SSM 経由の呼び出しに限る」条件を付ける。
+   *
+   * **`kms:GenerateDataKey` は要らない。** 封筒暗号化を使うのは Advanced ティアの
+   * パラメータで、こちらは Standard（ssm.tf で tier を指定していない＝既定）。
+   * Standard は値をそのまま KMS の Encrypt に渡す（4KB の上限は Encrypt の
+   * 平文サイズ上限そのもの）。合言葉も署名鍵もその上限には遠い。
    */
   statement {
-    sid       = "DecryptViaSsm"
-    actions   = ["kms:Decrypt"]
+    sid = "SsmCryptoViaSsm"
+    actions = [
+      "kms:Decrypt",
+      "kms:Encrypt",
+    ]
     resources = ["*"]
 
     condition {
