@@ -11,9 +11,8 @@
  * conditional なら…と扱いが変わるので、判断を1か所に集めたい。
  */
 
-import { config } from '../config';
 import { headerValue } from '../http';
-import { getSecureParameter } from '../ssm';
+import { getUnlockSecrets, refreshUnlockSecrets } from './secrets';
 import { verifyToken } from './token';
 
 /**
@@ -51,8 +50,29 @@ export async function authenticate(
   const token = bearerToken(line);
   if (token === null) return { state: 'invalid', reason: 'malformed' };
 
-  const signingKey = await getSecureParameter(config.tokenSecretParam);
-  const result = verifyToken(signingKey, token);
+  const { signingKey } = await getUnlockSecrets();
+  let result = verifyToken(signingKey, token);
+
+  /**
+   * 署名が合わないときだけ、鍵を読み直して一度だけやり直す（F-20）。
+   *
+   * 合言葉を変更すると署名鍵も回るが、**書き込めるのは実行した1つのコンテナだけ**で、
+   * 他のコンテナは最大5分（auth/secrets.ts の CACHE_TTL_MS）古い鍵を持つ。
+   * 変更した本人には新しい鍵で署名したトークンを渡しているので、読み直さないと
+   * **「変更した本人の解除を維持する」という F-20 の設計が5分間成立しない**。
+   *
+   * `malformed` と `expired` では読み直さない。どちらも鍵とは無関係な理由で、
+   * 読み直しても結果は変わらないため（`expired` は署名を確認したあとの判定）。
+   *
+   * 読み直しには間隔制限があるが、**値が変わっていた回は消費しない**ので、
+   * 本物のローテーションはここで必ず拾える（auth/secrets.ts）。
+   */
+  if (!result.ok && result.reason === 'signature') {
+    const latest = await refreshUnlockSecrets();
+    if (latest.signingKey !== signingKey) {
+      result = verifyToken(latest.signingKey, token);
+    }
+  }
 
   if (!result.ok) return { state: 'invalid', reason: result.reason };
 

@@ -6,14 +6,14 @@
  * 開発者ツールから直接呼ばれれば回避できる（CLAUDE.md §7 の検証の二重化）。
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto';
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { isActiveOwner } from '../../../shared/masters';
+import { passphraseMatches } from '../auth/passphrase';
+import { getUnlockSecrets, refreshUnlockSecrets } from '../auth/secrets';
 import { issueToken } from '../auth/token';
 import { config } from '../config';
 import { errorResponse, jsonResponse } from '../http';
 import { loadMasters } from '../masters';
-import { getSecureParameter } from '../ssm';
 import { parseJsonObject, requiredString } from '../validate';
 import type { PublicContext } from './context';
 
@@ -36,19 +36,6 @@ function parseRequest(body: string | null): UnlockRequest | null {
   return { userName, passphrase };
 }
 
-/**
- * 合言葉の照合。
- *
- * 双方を SHA-256 にしてから比較するのは、`timingSafeEqual` が長さの違う入力で
- * 例外を投げるため。ハッシュにすれば常に32バイトで、長さから合言葉の桁数が
- * 漏れることもなくなる。
- */
-function passphraseMatches(input: string, expected: string): boolean {
-  const a = createHash('sha256').update(input, 'utf8').digest();
-  const b = createHash('sha256').update(expected, 'utf8').digest();
-  return timingSafeEqual(a, b);
-}
-
 export async function postUnlock(context: PublicContext): Promise<APIGatewayProxyResult> {
   const origin = context.origin;
 
@@ -65,11 +52,7 @@ export async function postUnlock(context: PublicContext): Promise<APIGatewayProx
    * 保たれる** — 対策の中身は「両方を評価してから判定する」ことであって、
    * 評価の順番ではないため。
    */
-  const [passphrase, signingKey, masters] = await Promise.all([
-    getSecureParameter(config.passphraseParam),
-    getSecureParameter(config.tokenSecretParam),
-    loadMasters(),
-  ]);
+  const [secrets, masters] = await Promise.all([getUnlockSecrets(), loadMasters()]);
 
   /**
    * **2つの判定をどちらも評価してから結果を出す。**
@@ -79,8 +62,32 @@ export async function postUnlock(context: PublicContext): Promise<APIGatewayProx
    * 同じ 401・同じ本文を返しても、速さで区別が付いては意味がない。
    * どちらかが false でも打ち切らず、最後の1回だけで判定する。
    */
-  const passphraseOk = passphraseMatches(request.passphrase, passphrase);
+  let passphraseOk = passphraseMatches(request.passphrase, secrets.passphrase);
   const ownerExists = isActiveOwner(masters, request.userName);
+
+  /** トークンの署名に使う鍵。読み直したときは、合言葉と対で新しくなったほうを使う */
+  let signingKey = secrets.signingKey;
+
+  /**
+   * 失敗したら SSM を読み直して照合し直す（F-20）。
+   *
+   * 合言葉は画面から変更できる。**変更を書き込めるのは実行した1つのコンテナだけ**で、
+   * 他のコンテナは最大5分（auth/secrets.ts の CACHE_TTL_MS）古い値を持つ。読み直さないと
+   * 「変更したのに新しい合言葉で解除できない」が最大5分続き、利用者からは不具合に見える。
+   *
+   * **引き金を「合言葉の不一致」ではなく「失敗したこと」にしてある。**
+   * 不一致だけを条件にすると、氏名が誤りのときは読み直しが起きずに速く返り、
+   * 合言葉が誤りのときだけ遅くなる。**応答時間からどちらが誤りかが読めてしまい**、
+   * 上で守っている性質がここで崩れる。どちらの失敗でも同じ経路を通す。
+   *
+   * 読み直しは対で行われるので、**合言葉が新しくなったなら署名鍵も必ず新しい**。
+   * 古い鍵でトークンを発行してしまう経路が残らない（auth/secrets.ts）。
+   */
+  if (!ownerExists || !passphraseOk) {
+    const latest = await refreshUnlockSecrets();
+    passphraseOk = passphraseMatches(request.passphrase, latest.passphrase);
+    signingKey = latest.signingKey;
+  }
 
   if (!ownerExists || !passphraseOk) {
     // 失敗の記録には合言葉を書かない。氏名も、実在しない場合は攻撃者の入力そのものなので

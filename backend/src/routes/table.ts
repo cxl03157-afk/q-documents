@@ -15,6 +15,7 @@
  *   - パス変数は名前付きグループにする。`context.params` に同じ名前で入る
  */
 
+import { postPassphrase } from './changePassphrase';
 import type { Route } from './context';
 import { postDocument } from './createDocument';
 import { postMaster } from './createMaster';
@@ -44,6 +45,20 @@ export const routes: Route[] = [
     // これ自体がトークンを発行する入口なので、トークンは要求できない
     auth: 'public',
     handler: postUnlock,
+  },
+  {
+    method: 'POST',
+    pattern: /^\/auth\/passphrase$/,
+    /**
+     * 解除中の利用者だけが変更できる（F-20）。
+     *
+     * さらにハンドラ内で**現在の合言葉の再入力**も要求する。トークンだけで変えられると、
+     * 解除したまま離席した端末から合言葉を変えられてしまう。
+     * 現在の合言葉が違う場合は 401 ではなく **403** を返す — 401 は画面側が
+     * 「トークンが失効した」と解釈して解除を切るため、打ち間違いで解除が終わる。
+     */
+    auth: 'required',
+    handler: postPassphrase,
   },
   {
     method: 'GET',
