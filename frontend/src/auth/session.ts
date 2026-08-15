@@ -158,6 +158,25 @@ export function startSession(userName: string, token: string, expiresAt: number)
   emitChange();
 }
 
+/**
+ * トークンだけを差し替える（F-20 の合言葉変更で使う）。
+ *
+ * 合言葉を変更すると署名鍵も回るので、**発行済みのトークンは自分のものも含めて
+ * 全部無効になる**。変更した本人にはサーバーが新しいトークンを返すので、それに載せ替える。
+ *
+ * **通知を出さない。** ロック→解除のような状態の変化は起きておらず（解除中のまま）、
+ * ヘッダーを描き直す理由もない。ここで通知すると `main.ts` が `refreshRoute()` を
+ * 呼び、**変更の完了表示が消えて入力フォームに戻ってしまう**。
+ * 通知なしで書き込む前例は `touch()`。
+ *
+ * ロック中に呼ばれた場合は何もしない（期限切れのセッションを蘇らせない）。
+ */
+export function updateToken(token: string, expiresAt: number): void {
+  const session = getSession();
+  if (session === null) return;
+  write({ ...session, token, expiresAt, lastActiveAt: Date.now() });
+}
+
 /** ヘッダーの[終了]・自動ロック・401受信時に呼ぶ */
 export function endSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);

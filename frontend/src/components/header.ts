@@ -44,6 +44,7 @@ function unlockedHeader(userName: string): string {
         <a href="#/" class="header-link">一覧</a>
         <a href="#/documents/new" class="header-link">新規発行</a>
         <a href="#/masters" class="header-link">マスタ管理</a>
+        <a href="#/passphrase" class="header-link">合言葉の変更</a>
       </nav>
       <span class="header-user">${escapeHtml(userName)}（生産技術）</span>
       <button type="button" id="end-session" class="btn-end">終了</button>
