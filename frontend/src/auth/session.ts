@@ -169,12 +169,39 @@ export function startSession(userName: string, token: string, expiresAt: number)
  * 呼び、**変更の完了表示が消えて入力フォームに戻ってしまう**。
  * 通知なしで書き込む前例は `touch()`。
  *
- * ロック中に呼ばれた場合は何もしない（期限切れのセッションを蘇らせない）。
+ * **期限切れでも書き込む。** 以前は「期限切れのセッションを蘇らせない」として
+ * 何もせずに戻していたが、そうすると応答を待つ間にちょうど期限が切れた場合に、
+ * **サーバーが発行したばかりの新しいトークンを捨てて、画面だけが「解除は続きます」と
+ * 表示する**状態になった（セルフレビューで発見）。
+ * ここへ来るのは、サーバーが要求を認めて新しい期限を返した直後に限られる。
+ * 蘇らせてよい根拠はサーバーの応答そのものなので、古い期限を理由に捨てない。
+ *
+ * 氏名は現在のセッションから引き継ぎ、既に破棄されていた場合だけ引数を使う。
+ *
+ * ---
+ *
+ * **失効から復活したときだけは通知を出す。**
+ *
+ * 応答を待つ間に期限が切れると、`autoLock` が「無操作のため終了しました」の帯を出し、
+ * 画面は解除画面へ移っている。そこへ黙って有効なセッションを書き込むと、
+ * **保存されている状態は解除中なのに、画面は解除画面のまま帯も貼り付いたまま**になる。
+ * 帯を消す経路は「解除された」という通知しかないので、出さない限り消えない
+ * （セルフレビューで発見）。
+ *
+ * 解除中に呼ばれた通常の場合は、これまでどおり通知しない（状態が変わっていないうえ、
+ * 通知すると再描画で変更の完了表示が消える）。
  */
-export function updateToken(token: string, expiresAt: number): void {
+export function updateToken(userName: string, token: string, expiresAt: number): void {
   const session = getSession();
-  if (session === null) return;
-  write({ ...session, token, expiresAt, lastActiveAt: Date.now() });
+
+  write({
+    userName: session?.userName ?? userName,
+    token,
+    expiresAt,
+    lastActiveAt: Date.now(),
+  });
+
+  if (session === null) emitChange();
 }
 
 /** ヘッダーの[終了]・自動ロック・401受信時に呼ぶ */

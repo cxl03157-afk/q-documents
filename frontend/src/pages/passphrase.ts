@@ -10,8 +10,8 @@
  */
 
 import { MAX_PASSPHRASE_LENGTH, MIN_PASSPHRASE_LENGTH, passphraseRejectionReason } from '../../../shared/passphrasePolicy';
-import { endSession, updateToken } from '../auth/session';
-import { apiPostAuthed } from '../lib/api';
+import { endSession, getSession, updateToken } from '../auth/session';
+import { NETWORK_ERROR_STATUS, apiPostAuthed } from '../lib/api';
 import { escapeHtml } from '../lib/html';
 
 /** POST /auth/passphrase の成功応答（docs/API.md）。`unlock` と同じ形 */
@@ -50,21 +50,31 @@ function isSecretRotated(payload: unknown): boolean {
   return (payload as Record<string, unknown>).stage === 'secret-rotated';
 }
 
-/** 応答待ちの間に別の画面へ移った場合の判定（documentEdit.ts と同じパターン） */
-let activeSession = 0;
+/** この画面のルート。描き直されても「まだこの画面か」を判断できる基準にする */
+const ROUTE = '#/passphrase';
 
-function isCurrentSession(session: number): boolean {
-  return session === activeSession;
+/**
+ * 応答待ちの間に画面が変わっていないか。
+ *
+ * **数え上げた番号では足りない**（documentEdit.ts などが使っている方式）。
+ * 番号が増えるのは同じ画面をもう一度開いたときだけなので、`[一覧へ戻る]` や
+ * ヘッダーの `[一覧]` で**別の画面へ移った場合は増えず**、応答が届いた時点で
+ * 完了表示が一覧を上書きしてしまう（セルフレビューで発見）。
+ *
+ * `#app` の中身を差し替えれば、それ以前の要素は文書から切り離される。
+ * **描画のたびに増える番号を管理するより、要素がまだ繋がっているかを直接見るほうが
+ * 移動の仕方を問わない。**
+ */
+function isStillVisible(form: HTMLFormElement): boolean {
+  return form.isConnected;
 }
 
 export function renderPassphrase(): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
 
-  const session = ++activeSession;
-
   app.innerHTML = formPage();
-  bindEvents(app, session);
+  bindEvents(app);
 }
 
 function formPage(): string {
@@ -106,17 +116,24 @@ function formPage(): string {
   `;
 }
 
-function bindEvents(app: HTMLElement, session: number): void {
+function bindEvents(app: HTMLElement): void {
   const form = app.querySelector<HTMLFormElement>('#passphrase-form');
   if (!form) return;
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    void submit(app, form, session);
+    void submit(app, form);
   });
 }
 
-async function submit(app: HTMLElement, form: HTMLFormElement, session: number): Promise<void> {
+async function submit(app: HTMLElement, form: HTMLFormElement): Promise<void> {
+  /**
+   * 氏名は**送信前に**控える。応答を待つ間にちょうど期限が切れると、
+   * その時点でセッションが破棄されて氏名も読めなくなる。新しいトークンを
+   * 載せ替えるときにヘッダーへ出す名前が必要なので、先に取っておく。
+   */
+  const userName = getSession()?.userName ?? '';
+
   const current = fieldValue(form, 'current');
   const next = fieldValue(form, 'next');
   const confirm = fieldValue(form, 'confirm');
@@ -155,9 +172,26 @@ async function submit(app: HTMLElement, form: HTMLFormElement, session: number):
      * 別の画面へ移っていた場合こそ、載せ替えないと次の操作が 401 で落ちる
      * （documentEdit.ts の「store への反映はセッションで絞らない」と同じ考え方）。
      */
-    updateToken(result.data.token, Date.now() + result.data.expiresInSeconds * 1000);
+    updateToken(userName, result.data.token, Date.now() + result.data.expiresInSeconds * 1000);
 
-    if (!isCurrentSession(session)) return;
+    /**
+     * **ここだけは要素ではなくルートで判断する。**
+     *
+     * 失効から復活した場合、`updateToken` が通知を出して `main.ts` がこの画面を
+     * 描き直す。すると手元の `form` は切り離されるので、要素で判断すると
+     * **変更は成功しているのに完了表示が出ない**（真っ白なフォームに戻る）。
+     * 利用者はもう使えない古い合言葉で再試行して 403 を踏むことになる
+     * （セルフレビューで発見）。
+     *
+     * `#app` は使い回しの要素なので、ルートが変わっていなければ書き込んでよい。
+     *
+     * **失効から復活した場合に必ず出せるわけではない。** `autoLock` の定期確認が先に
+     * 走っていると、その時点でルートが `#/unlock` へ移っているのでここは通らない。
+     * ただしその場合も**復活の通知で解除中として描き直され、一覧へ移る**
+     * （`pages/unlock.ts` が解除中なら `#/` へ送る）ので、解除画面に取り残されたり
+     * 古い合言葉で再試行させられたりはしない。出せないのは完了の文言だけ。
+     */
+    if (location.hash !== ROUTE) return;
     app.innerHTML = completedPage();
     return;
   }
@@ -174,7 +208,7 @@ async function submit(app: HTMLElement, form: HTMLFormElement, session: number):
    * （説明を読ませる相手がいないので、その場で解除を終わらせる）。
    */
   if (isSecretRotated(result.payload)) {
-    if (!isCurrentSession(session)) {
+    if (!isStillVisible(form)) {
       endSession();
       return;
     }
@@ -192,10 +226,27 @@ async function submit(app: HTMLElement, form: HTMLFormElement, session: number):
     return;
   }
 
-  if (!isCurrentSession(session)) return;
+  if (!isStillVisible(form)) return;
 
   setSubmitting(button, false);
-  showError(app, form, result.message);
+
+  /**
+   * **通信が失敗した場合は、成否が分からないことを伝える。**
+   *
+   * 応答が届かなかっただけで、サーバー側では両方の書き込みが終わっているかもしれない。
+   * その場合は合言葉が既に変わっていて、この端末のトークンも死んでいる。
+   * 単に「通信に失敗しました」とだけ出すと、利用者は古い合言葉で再試行して 403 を踏む。
+   *
+   * どちらに転んでも成り立つ案内は「解除し直して確かめる」こと — 変わっていなければ
+   * 元の合言葉で、変わっていれば新しい合言葉で解除できる。
+   */
+  showError(
+    app,
+    form,
+    result.status === NETWORK_ERROR_STATUS
+      ? `${result.message}。変更が完了している可能性があります。一度[終了]して、新しい合言葉で解除できるか確認してください`
+      : result.message,
+  );
 }
 
 function completedPage(): string {
