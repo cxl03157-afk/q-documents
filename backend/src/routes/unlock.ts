@@ -9,7 +9,7 @@
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { isActiveOwner } from '../../../shared/masters';
 import { passphraseMatches } from '../auth/passphrase';
-import { getUnlockSecrets, refreshUnlockSecrets } from '../auth/secrets';
+import { noteRefreshDidNotHelp, refreshUnlockSecrets } from '../auth/secrets';
 import { issueToken } from '../auth/token';
 import { config } from '../config';
 import { errorResponse, jsonResponse } from '../http';
@@ -41,18 +41,39 @@ export async function postUnlock(context: PublicContext): Promise<APIGatewayProx
 
   const request = parseRequest(context.body);
   if (request === null) {
+    /**
+     * **記録を残す。** ここは合言葉の照合まで到達していないので、以前は 400 を返しつつ
+     * ログに1行も残らなかった。実際にそれで切り分けに手間取った — 画面から空の合言葉が
+     * 送られたとき、サーバー側には「リクエストが来た」以外の痕跡が無く、
+     * 401（合言葉が違う）なのか 400（形式が不正）なのかがログから判別できなかった。
+     *
+     * **中身は書かない。** ここへ来る値は検証を通っていない入力そのもので、
+     * 合言葉が含まれている可能性がある。残すのは「形式で弾いた」という事実だけでよい。
+     */
+    console.log(JSON.stringify({ message: 'unlock rejected', reason: 'malformed request' }));
     return errorResponse(origin, 400, 'リクエストの形式が正しくありません');
   }
 
   /**
-   * マスタの取得も同じ `Promise.all` に入れる。
+   * **解除のたびに SSM を読み直す**（キャッシュを信用しない）。
    *
-   * SSM の2本とマスタの Scan は互いに依存しないので、直列にする理由がない。
-   * 短縮されるのは主にコールドスタート時だが、**順序を変えても下のタイミング差対策は
-   * 保たれる** — 対策の中身は「両方を評価してから判定する」ことであって、
-   * 評価の順番ではないため。
+   * 照合が成功したときだけ読み直しを飛ばす形にしていたが、それだと
+   * **古い合言葉で成功したときに、古い署名鍵でトークンを発行してしまう**。
+   * 発行した本人は解除できたつもりでも、そのトークンは他のコンテナで 401 になり、
+   * 次の操作でいきなり解除が切れる（セルフレビューで発見）。
+   *
+   * 解除は利用者が1日に数回行うだけの操作なので、毎回2本読んでも負荷にならない。
+   * **頻度の高いトークン検証（requireToken.ts）とは扱いを変える** — あちらは
+   * 全リクエストで通るため、キャッシュを外せない。
+   *
+   * 成功・失敗のどちらでも同じ経路を通るので、応答時間から
+   * 「氏名と合言葉のどちらが誤りか」が読めない性質も保たれる。
+   *
+   * マスタの Scan を同じ `Promise.all` に入れるのは、互いに依存しないため。
+   * **順序を変えても下のタイミング差対策は保たれる** — 対策の中身は
+   * 「両方を評価してから判定する」ことであって、評価の順番ではない。
    */
-  const [secrets, masters] = await Promise.all([getUnlockSecrets(), loadMasters()]);
+  const [secrets, masters] = await Promise.all([refreshUnlockSecrets(), loadMasters()]);
 
   /**
    * **2つの判定をどちらも評価してから結果を出す。**
@@ -62,34 +83,17 @@ export async function postUnlock(context: PublicContext): Promise<APIGatewayProx
    * 同じ 401・同じ本文を返しても、速さで区別が付いては意味がない。
    * どちらかが false でも打ち切らず、最後の1回だけで判定する。
    */
-  let passphraseOk = passphraseMatches(request.passphrase, secrets.passphrase);
+  const passphraseOk = passphraseMatches(request.passphrase, secrets.passphrase);
   const ownerExists = isActiveOwner(masters, request.userName);
 
-  /** トークンの署名に使う鍵。読み直したときは、合言葉と対で新しくなったほうを使う */
-  let signingKey = secrets.signingKey;
-
-  /**
-   * 失敗したら SSM を読み直して照合し直す（F-20）。
-   *
-   * 合言葉は画面から変更できる。**変更を書き込めるのは実行した1つのコンテナだけ**で、
-   * 他のコンテナは最大5分（auth/secrets.ts の CACHE_TTL_MS）古い値を持つ。読み直さないと
-   * 「変更したのに新しい合言葉で解除できない」が最大5分続き、利用者からは不具合に見える。
-   *
-   * **引き金を「合言葉の不一致」ではなく「失敗したこと」にしてある。**
-   * 不一致だけを条件にすると、氏名が誤りのときは読み直しが起きずに速く返り、
-   * 合言葉が誤りのときだけ遅くなる。**応答時間からどちらが誤りかが読めてしまい**、
-   * 上で守っている性質がここで崩れる。どちらの失敗でも同じ経路を通す。
-   *
-   * 読み直しは対で行われるので、**合言葉が新しくなったなら署名鍵も必ず新しい**。
-   * 古い鍵でトークンを発行してしまう経路が残らない（auth/secrets.ts）。
-   */
   if (!ownerExists || !passphraseOk) {
-    const latest = await refreshUnlockSecrets();
-    passphraseOk = passphraseMatches(request.passphrase, latest.passphrase);
-    signingKey = latest.signingKey;
-  }
+    /**
+     * 読み直したうえで拒否した、と伝える（本数を1つ使う）。
+     * **成功した解除では呼ばない** — 正しい合言葉は攻撃者には出せないので、
+     * 連打対策の本数を消費させる理由がない（auth/secrets.ts）。
+     */
+    noteRefreshDidNotHelp();
 
-  if (!ownerExists || !passphraseOk) {
     // 失敗の記録には合言葉を書かない。氏名も、実在しない場合は攻撃者の入力そのものなので
     // ログに残す価値より、そのまま出すことの副作用（ログ汚染）のほうが大きい
     console.log(
@@ -103,7 +107,7 @@ export async function postUnlock(context: PublicContext): Promise<APIGatewayProx
   }
 
   const { token, expiresAt } = issueToken(
-    signingKey,
+    secrets.signingKey,
     request.userName,
     config.tokenTtlSeconds
   );

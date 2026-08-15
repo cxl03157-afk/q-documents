@@ -42,18 +42,40 @@ export type UnlockSecrets = {
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * 読み直しの最短間隔。
+ * **解決しなかった**読み直しを何回まで許すか（使い切ると、窓が変わるまで読み直さない）。
  *
- * **読み直しは失敗を引き金に起きる**（合言葉が一致しない・署名が合わない）ので、
- * 誤った入力を連打されるとそのまま SSM の呼び出し回数になる。GetParameter には
- * 秒あたりの上限があり、そこを突かれると**正しい合言葉での解除まで巻き添えで失敗する**。
+ * ---
+ *
+ * **なぜ上限が要るか。** 読み直しは誤った入力（合言葉の不一致・署名の不一致）で起きるので、
+ * 連打されるとそのまま SSM の呼び出し回数になる。GetParameter には秒あたりの上限があり、
+ * そこを突かれると**正しい合言葉での解除まで巻き添えで失敗する**。
+ *
+ * **なぜ「◯秒に1回まで」ではないか。** それだと単発の事象を取りこぼす。誰かが1回
+ * 打ち間違えただけで制限が張られ、その直後に合言葉が変更されると、変更した本人の
+ * 新しいトークンが署名不一致のまま読み直しを抑止されて 401 になる（画面は解除を終える）。
+ * **F-20 が防ごうとした失敗そのもの**で、間隔を短くしても形は消えない。
+ *
+ * **なぜ数えるのが「解決しなかった回」なのか。** 当初は「読み直しても値が同じだった回」を
+ * 数えていたが、それだと**正常な解除まで本数を消費する**（解除のたびに読み直すため・
+ * セルフレビューで発見）。同じコンテナで解除が続くと本数が尽き、その窓でローテーションが
+ * 起きると古い値を返してしまう。**正しい合言葉での解除は攻撃者には起こせない**ので、
+ * 数に入れる理由がない。数えるべきは**読み直してもなお拒否した回**だけで、
+ * それは誤った入力の回数と一致する。判断は結果を知っている呼び出し側が行う
+ * （`noteRefreshDidNotHelp`）。
+ *
+ * 上限の見積もり: 10秒あたり5回・同時実行の上限が10なので、最悪でも
+ * 毎秒5回（GetParameter は2本なので10回）。SSM の上限（40 TPS）に対して余裕がある。
  */
-const MIN_REFRESH_INTERVAL_MS = 10 * 1000;
+const FAILED_REFRESH_BUDGET = 5;
+
+/** 本数を数える窓。使い切っても、窓が変われば補充される */
+const REFRESH_WINDOW_MS = 10 * 1000;
 
 let cache: { secrets: UnlockSecrets; fetchedAt: number } | null = null;
 
-/** この時刻までは読み直さない。**空振りだったときだけ**設定する（下記参照） */
-let refreshBlockedUntil = 0;
+/** いまの窓で「読み直しても解決しなかった」回数と、その窓の開始時刻 */
+let failedRefreshes = 0;
+let windowStartedAt = 0;
 
 /** 2本まとめて読む。片方だけ新しい状態を作らないため、必ずこの関数を通す */
 async function fetchBoth(): Promise<UnlockSecrets> {
@@ -97,32 +119,71 @@ export async function getUnlockSecrets(): Promise<UnlockSecrets> {
  *
  * ---
  *
- * **間隔制限は「空振りだったとき」だけ設定する。**
+ * **本数を消費するのは呼び出し側**（`noteRefreshDidNotHelp`）。読み直した結果それでも
+ * 拒否したときだけ数える。正常な解除やローテーションの検出では消費しない
+ * （FAILED_REFRESH_BUDGET の説明を参照）。
  *
- * 読み直して値が変わっていれば、それは本物のローテーションが起きた証拠で、
- * 攻撃者には起こせない。そこで間隔を開けると、**変更の伝播をこちらから遅らせる**ことになる。
- * 値が同じだった読み直し（＝誤った入力による空振り）だけを数えれば、連打は抑えつつ
- * 本物の変更は即座に伝わる。
+ * **値の変化を見つけたら本数を戻す。** ローテーションの直後は他の利用者も古い値で
+ * 失敗してくるため、そこで本数が尽きていると伝播が止まる。
  *
- * 時刻を**呼び出しの後**に記録するのも同じ理由で、SSM 側の一時的な失敗で
- * 読み直せなかった回に間隔を消費させない。
+ * **残る限界。** 同じコンテナで10秒のうちに5回**誤った入力**があり、かつその窓の中で
+ * ローテーションが起きた場合は、まだ古い値を返す。この場合は 401 になり、
+ * 画面は解除を終える（次の窓で解消する）。**上限を設ける以上この形は消せない** —
+ * 消すには読み直せるまで待つ必要があり、待てば同時実行の枠を掴んだまま塞ぐことになって、
+ * かえって全員が使えなくなる。
  */
 export async function refreshUnlockSecrets(): Promise<UnlockSecrets> {
-  if (Date.now() < refreshBlockedUntil) {
+  const now = Date.now();
+
+  if (now - windowStartedAt >= REFRESH_WINDOW_MS) {
+    windowStartedAt = now;
+    failedRefreshes = 0;
+  }
+
+  if (failedRefreshes >= FAILED_REFRESH_BUDGET) {
     return getUnlockSecrets();
   }
 
   const previous = cache?.secrets ?? null;
   const latest = await fetchBoth();
 
-  const unchanged =
+  const changed =
     previous !== null &&
-    previous.passphrase === latest.passphrase &&
-    previous.signingKey === latest.signingKey;
+    (previous.passphrase !== latest.passphrase || previous.signingKey !== latest.signingKey);
 
-  refreshBlockedUntil = unchanged ? Date.now() + MIN_REFRESH_INTERVAL_MS : 0;
+  if (changed) failedRefreshes = 0;
 
   return latest;
+}
+
+/**
+ * **本数に関係なく必ず読み直す。**
+ *
+ * 上限のある `refreshUnlockSecrets` は、使い切ると黙って古い値を返す。それでよいのは
+ * 「古い値でも拒否になるだけ」の経路（解除・トークン検証）に限られる。
+ *
+ * **合言葉の変更だけは、古い値を掴むと拒否では済まない。** 変更前の合言葉が
+ * 「現在の合言葉」として通り、直前の変更を巻き戻して本人を締め出せてしまう
+ * （セルフレビューで発見）。ここは上限を外す。
+ *
+ * 外してよい根拠は**呼べる相手が限られていること** — この関数を使うのは
+ * `POST /auth/passphrase` だけで、有効なトークンが要る。資格の要らない解除と違い、
+ * 通りすがりに大量に叩ける経路ではない。そのぶん SSM への呼び出しが増えうるが、
+ * 実行できるのは既に解除している人だけで、頻度も1日に数えるほどしかない。
+ */
+export async function forceRefreshUnlockSecrets(): Promise<UnlockSecrets> {
+  return fetchBoth();
+}
+
+/**
+ * 直前の読み直しでも解決しなかったことを伝える（本数を1つ使う）。
+ *
+ * **呼び出し側が判断する。** 読み直しが役に立ったかどうかは結果を見ないと分からず、
+ * この関数の中では「値が同じだった」ことしか分からない。値が同じでも、正しい合言葉での
+ * 解除なら**それは成功であって空振りではない**。区別できるのは呼び出し側だけ。
+ */
+export function noteRefreshDidNotHelp(): void {
+  failedRefreshes += 1;
 }
 
 /**
@@ -132,8 +193,14 @@ export async function refreshUnlockSecrets(): Promise<UnlockSecrets> {
  * 直後の照合で古い値を使い、「変更した直後に、変更した端末で入れない」という
  * 最も分かりにくい失敗になる。
  *
- * 取得時刻は動かさない。**書いていないほうの値の期限を、書き込みで延ばさない**ため。
- * 保存が片方で失敗した場合も、キャッシュは SSM の実際の状態と一致したままになる。
+ * **取得時刻も打ち直す。** 据え置くと、期限が切れる直前に書き込んだ場合に
+ * 直後のリクエストで SSM を読み直すことになり、Parameter Store が書き込み前の値を
+ * 返した瞬間に**変更した本人が 401 で落ちる**（この関数が防ごうとしている失敗そのもの・
+ * セルフレビューで発見）。書いた値が最新であることはこちらが知っているので、
+ * 読み直して確かめる必要がない。
+ *
+ * 書いていないほうの値の期限も延びるが、実害はない。この2つを変えるのは
+ * `POST /auth/passphrase` だけで、いまその処理を実行しているのがこのコンテナだから。
  */
 export async function writeUnlockSecret(
   kind: keyof UnlockSecrets,
@@ -145,7 +212,7 @@ export async function writeUnlockSecret(
   if (cache !== null) {
     cache = {
       secrets: { ...cache.secrets, [kind]: value },
-      fetchedAt: cache.fetchedAt,
+      fetchedAt: Date.now(),
     };
   }
 }

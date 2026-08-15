@@ -52,6 +52,22 @@ export async function getSecureParameter(name: string): Promise<string> {
  *
  * `Type` を毎回指定するのは、`Overwrite: true` でも省略すると型が引き継がれず
  * エラーになる場合があるため。SecureString 以外をここから書くことはない。
+ *
+ * ---
+ *
+ * **`Description` は渡さない（渡さなくても消えないことを本番で実測済み）。**
+ *
+ * 「上書きすると Terraform（infra/ssm.tf）が設定した説明が消え、以後 plan に
+ * 差分が出続ける」という指摘を複数回受けたが、**再現しない**。
+ * 2026/8/15 に画面から合言葉を変更（両パラメータとも Version 2 → 3）したあと、
+ *
+ *   aws ssm describe-parameters   → 2本とも Description は元のまま
+ *   terraform plan                → SSM パラメータの差分なし（0 to add, 1 to change・
+ *                                    その1件は Lambda の関数コード）
+ *
+ * を確認した。説明をここへ持ち込むと、SSM の入出力だけを担うこのファイルが
+ * パラメータごとの文言を知ることになる。**実測で否定できている以上、その結合は作らない。**
+ * 将来 AWS の挙動が変わって plan に差分が出たら、そのときに渡せばよい。
  */
 export async function putSecureParameter(name: string, value: string): Promise<void> {
   await client.send(

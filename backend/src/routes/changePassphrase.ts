@@ -33,12 +33,14 @@
 
 import { randomBytes } from 'node:crypto';
 import type { APIGatewayProxyResult } from 'aws-lambda';
+import { isActiveOwner } from '../../../shared/masters';
 import { passphraseRejectionReason } from '../../../shared/passphrasePolicy';
 import { passphraseMatches } from '../auth/passphrase';
-import { getUnlockSecrets, refreshUnlockSecrets, writeUnlockSecret } from '../auth/secrets';
+import { forceRefreshUnlockSecrets, writeUnlockSecret } from '../auth/secrets';
 import { issueToken } from '../auth/token';
 import { config } from '../config';
 import { errorResponse, jsonResponse } from '../http';
+import { loadMasters } from '../masters';
 import { parseJsonObject, requiredString } from '../validate';
 import type { AuthedContext } from './context';
 
@@ -64,26 +66,60 @@ export async function postPassphrase(context: AuthedContext): Promise<APIGateway
 
   const request = parseRequest(context.body);
   if (request === null) {
+    // 形式で弾いた事実だけを残す（理由は unlock.ts の同じ箇所を参照）。中身は書かない
+    console.log(
+      JSON.stringify({ message: 'passphrase change rejected', userName, reason: 'malformed request' }),
+    );
     return errorResponse(origin, 400, 'リクエストの形式が正しくありません');
   }
 
-  // --- ① 現在の合言葉の照合 -------------------------------------------------
-
-  let stored = (await getUnlockSecrets()).passphrase;
-  let currentOk = passphraseMatches(request.currentPassphrase, stored);
+  // --- ① 担当者の確認と、現在の合言葉の照合 ---------------------------------
 
   /**
-   * 一致しなければ読み直して照合し直す（auth/secrets.ts の refreshUnlockSecrets を参照）。
+   * **キャッシュを信用せず、毎回読み直す**（`unlock.ts` と同じ扱い）。
    *
-   * **変更した直後にもう一度変更しようとする場合**、このコンテナのキャッシュが
-   * 古ければ、正しい現行の合言葉が 403 で弾かれる。読み直しで解消する。
+   * 当初はキャッシュから読み、一致しなかったときだけ読み直していた。
+   * しかしそれだと**古い合言葉が「現在の合言葉」として通ってしまう** —
+   * 古い値を持つコンテナでは最初の照合で一致してしまい、読み直しの経路に入らない
+   * （セルフレビューで発見）。
+   *
+   * 実害が大きい。誰かが合言葉を変えた直後に、**変更前の合言葉を知っている人が
+   * 古い値のまま変更を実行できる**（古いトークンも最大5分は通る）。結果として
+   * 直前の変更が巻き戻り、変更した本人が締め出される。
+   *
+   * **解除より権限の強い操作なのに、解除より緩い読み方をしていた**のが誤り。
+   *
+   * さらに、連打対策の**上限にも縛られない**読み方を使う（`forceRefreshUnlockSecrets`）。
+   * 上限のある読み方だと、誤った解除を短時間に繰り返して本数を使い切らせるだけで、
+   * 同じ「古い合言葉が通る」状態を意図的に作れてしまう。
+   * この経路は有効なトークンが要るので、資格なしに大量には叩けない。
    */
-  if (!currentOk) {
-    stored = (await refreshUnlockSecrets()).passphrase;
-    currentOk = passphraseMatches(request.currentPassphrase, stored);
+  const [secrets, masters] = await Promise.all([forceRefreshUnlockSecrets(), loadMasters()]);
+
+  /**
+   * **無効化された担当者は変更できない。**
+   *
+   * 当初は「トークンが通っている＝権限の根拠」として再確認しない方針だったが、
+   * この経路だけは**新しいトークンを発行する**ので他の書き込み系と性質が違う。
+   * 再確認しないと、無効化された担当者が「合言葉を変える」だけで自分のトークンを
+   * 何度でも更新でき、`unlock` の `isActiveOwner` による締め出しを迂回できる
+   * （セルフレビューで発見）。**担当者の無効化は人を外すための手段**なので、
+   * その人が共有の合言葉を変えられるのは逆立ちしている。
+   */
+  if (!isActiveOwner(masters, userName)) {
+    console.log(JSON.stringify({ message: 'passphrase change rejected', userName, reason: 'inactiveOwner' }));
+    return errorResponse(origin, 403, '担当者が無効化されているため、この操作はできません');
   }
 
+  const stored = secrets.passphrase;
+  const currentOk = passphraseMatches(request.currentPassphrase, stored);
+
   if (!currentOk) {
+    /**
+     * **本数は消費しない。** この経路の読み直しは上限に縛られていないので、
+     * ここで数えると、有効なトークンを持つ相手が誤った合言葉を繰り返すだけで
+     * 解除側の読み直しを痩せさせられる（他人に影響を出せてしまう）。
+     */
     /**
      * 失敗も記録する（CLAUDE.md §8-7）。解除中の端末からしか到達できない操作なので、
      * ここが並ぶのは端末が放置されている兆候になる。**合言葉の値は書かない。**
