@@ -103,12 +103,32 @@ export function isActiveOwner(masters: MasterRecord[], userName: string): boolea
  *
  * コードではなく氏名で引くのは、担当者マスタの `name` が氏名で、
  * 画面（S-2・S-3・S-4）も氏名を値にしているため。
+ *
+ * ---
+ *
+ * **同じ氏名が2件あり得るので、有効なほうを優先して返す。**
+ *
+ * 担当者マスタのキーは `category` + `code` なので、同姓同名や登録し直しで
+ * 同じ `name` が複数並ぶことがある。S-6 は誤登録の直し方として
+ * 「無効化して正しい内容で追加し直す」を案内しており（コード欄が編集不可のため）、
+ * 担当者でそれを行うと**無効1件＋有効1件**が必ずできる。
+ *
+ * 単に先頭を返すと、走査順で無効のほうが先に当たった人は
+ * **プルダウンには出るのに解除できず（401）、発行もできない（400）**という状態になる。
+ * 画面から直す手段が無い（無効なほうを消す操作を用意していない）ので、ここで優先する。
+ *
+ * **氏名の一意性そのものは縛らない。** 同姓同名は実在し得るし、
+ * 記録に残るのが氏名である以上（CLAUDE.md §8-7）、登録できないほうが困る。
+ * ただし**同名が2人とも有効な場合は、ログの氏名からどちらか判別できない**。
+ * 現在の担当者数では起きないため見送っている（docs/context.md の未解決
+ * 「同名の担当者を氏名だけで識別している」）。
  */
 export function findOwnerByName(
   masters: MasterRecord[],
   userName: string,
 ): MasterRecord | undefined {
-  return masters.find((m) => m.category === '担当者' && m.name === userName);
+  const owners = masters.filter((m) => m.category === '担当者' && m.name === userName);
+  return owners.find((m) => m.status === '有効') ?? owners[0];
 }
 
 /**

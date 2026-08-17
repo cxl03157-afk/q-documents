@@ -1,18 +1,24 @@
 /**
  * マスタ判定の純粋関数テスト（CLAUDE.md「テストを書く範囲」1に準ずる）。
  *
- * 対象は2つに絞る。他の判定関数（`activeMasters` 等）は単純なフィルタで
+ * 対象は3つに絞る。他の判定関数（`activeMasters` 等）は単純なフィルタで
  * 間違えにくいため対象外（CLAUDE.md「全体網羅はしない」）。
  *
  *   hasAnotherProcessScopedDocumentType — 「工程単位の文書種類は1つまで」
  *   ownerChangeRejection               — S-7 の「変更するときだけ有効を要求する」規律
+ *   同名の担当者                        — 有効なほうを優先して引く（`findOwnerByName`）
  *
- * 後者を入れるのは、**他の3経路（新規発行・リビジョンアップ）と規律が違う唯一の場所**だから。
+ * 2つめを入れるのは、**他の3経路（新規発行・リビジョンアップ）と規律が違う唯一の場所**だから。
  * 間違えると壊れ方が「本来断るものを通す」か「直せるはずのものを断る」のどちらかで、
  * どちらも正常系のテストでは気づけない。
  */
 import { describe, expect, it } from 'vitest';
-import { hasAnotherProcessScopedDocumentType, ownerChangeRejection } from './masters';
+import {
+  activeOwnerRejection,
+  hasAnotherProcessScopedDocumentType,
+  isActiveOwner,
+  ownerChangeRejection,
+} from './masters';
 import type { MasterRecord } from './types';
 
 const base: Omit<MasterRecord, 'code' | 'numberingRule'> = {
@@ -109,5 +115,43 @@ describe('ownerChangeRejection', () => {
     expect(ownerChangeRejection(masters, '山田太郎', '架空の人')).toBe(
       '担当者がマスタに登録されていません',
     );
+  });
+});
+
+/**
+ * 同じ氏名が複数あるとき、**有効なほうを優先する**。
+ *
+ * S-6 が誤登録の直し方として「無効化して追加し直す」を案内している以上、
+ * 担当者では無効1件＋有効1件が必ずできる。走査順で無効が先に当たると、
+ * その人は解除も発行もできないのに画面上に直す手段が無い。
+ *
+ * 判定関数（`isActiveOwner` / `activeOwnerRejection`）を通して確かめる。
+ * 壊れたときに実際に困るのはこの2つで、返り値そのものではないため。
+ */
+describe('同名の担当者（無効＋有効）', () => {
+  /** 無効なほうを先に置く。単純な find では無効が当たる並び */
+  const owners: MasterRecord[] = [
+    { category: '担当者', code: 'E003', name: '山田太郎', status: '無効', registeredAt: '' },
+    { category: '担当者', code: 'E009', name: '山田太郎', status: '有効', registeredAt: '' },
+  ];
+
+  it('有効な登録があれば解除できる', () => {
+    expect(isActiveOwner(owners, '山田太郎')).toBe(true);
+  });
+
+  it('有効な登録があれば新規発行の担当者として通る', () => {
+    expect(activeOwnerRejection(owners, '山田太郎')).toBeNull();
+  });
+
+  it('無効しか無ければ「無効化されています」（「登録されていません」にしない）', () => {
+    const onlyDisabled: MasterRecord[] = [owners[0]!];
+    expect(isActiveOwner(onlyDisabled, '山田太郎')).toBe(false);
+    expect(activeOwnerRejection(onlyDisabled, '山田太郎')).toBe(
+      'この担当者は無効化されています。有効な担当者を選んでください',
+    );
+  });
+
+  it('1件も無ければ「登録されていません」のまま', () => {
+    expect(activeOwnerRejection([], '山田太郎')).toBe('担当者がマスタに登録されていません');
   });
 });
