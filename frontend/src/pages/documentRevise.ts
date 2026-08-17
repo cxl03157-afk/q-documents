@@ -3,7 +3,10 @@
  *
  * 現行文書のリビジョンを1つ進め、新しいレコードを「ファイル未登録」で作る。
  * 旧版へのアーカイブは新Revのファイルが揃った時点で非同期Lambdaが行う（F-04）。この画面では行わない。
- * 週2で `POST /documents/{docNo}/revisions` に接続する。
+ *
+ * 新しいレコードを作るのは `POST /documents/{docNo}/revisions`。
+ * この画面が送るのは担当者と文書発行日だけで、残りはサーバーが現行レコードから
+ * 引き継ぐ（下の `submitRevision` を見ること）。
  */
 
 import type { DocumentRecord } from '../../../shared/types';
@@ -74,6 +77,9 @@ async function submitRevision(
   form: HTMLFormElement,
   doc: DocumentRecord,
 ): Promise<void> {
+  // 掴んだ要素がまだ文書に繋がっているかで、この画面がまだ見えているかを判断する
+  const isStillVisible = (): boolean => form.isConnected;
+
   const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
   const errorBox = app.querySelector<HTMLElement>('#revise-error');
 
@@ -95,6 +101,17 @@ async function submitRevision(
   );
 
   if (!result.ok) {
+    /**
+     * **切り離された要素に書いても見えない。**
+     *
+     * 応答を待っている間に画面が描き直されることがある（401 を受けた `api.ts` が
+     * `endSession()` を呼ぶ／解除・ロックの切り替え／台帳の取り直し。いずれも
+     * `main.ts` が `refreshRoute()` する）。掴んでおいた `errorBox` はそのとき
+     * 文書から外れるので、**サーバーが返した 409 の理由が誰にも見えなくなる**。
+     * 見えないなら書かない。画面は既に次の内容に置き換わっている。
+     */
+    if (!isStillVisible()) return;
+
     if (button) {
       button.disabled = false;
       button.textContent = '実行';
@@ -103,7 +120,15 @@ async function submitRevision(
     return;
   }
 
+  /**
+   * **ストアへの反映は画面より先。** 登録は成功しているので、
+   * 利用者が別の画面へ移っていても台帳には載せる（8/14 の決定）。
+   * セッションで絞るのは画面の描き替えだけ。
+   */
   upsertDocument(result.data.document);
+
+  if (!isStillVisible()) return;
+
   // 完了画面に出すのはサーバーが確定した文書番号。画面が組み立てた予測値ではない
   app.innerHTML = donePage(result.data.document.documentNo);
 }

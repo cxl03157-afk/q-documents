@@ -2,7 +2,10 @@
  * S-3 新規文書発行（screens.md §5）。
  *
  * 命名ルールに従って文書番号を採番し、台帳に「ファイル未登録」で記録する。
- * 週2で `POST /documents/number-preview` と `POST /documents` に接続する。
+ *
+ * **番号を出すのも記録するのもサーバー**（`POST /documents/number-preview` →
+ * `POST /documents`）。この画面は入力を集めて送り、返ってきた番号を出すだけで、
+ * 命名ルールを組み立てるコードは持たない（CLAUDE.md §7）。
  */
 
 import type { NumberingRule } from '../../../shared/types';
@@ -245,12 +248,12 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
     if (state.busy) return;
 
     readForm(form, state);
-    void run(state, draw, () => previewNumber(state));
+    void run(app, state, draw, () => previewNumber(state));
   });
 
   app.querySelector<HTMLButtonElement>('#register')?.addEventListener('click', () => {
     if (state.busy) return;
-    void run(state, draw, () => register(state));
+    void run(app, state, draw, () => register(state));
   });
 
   app.querySelector<HTMLButtonElement>('#back-to-input')?.addEventListener('click', () => {
@@ -292,16 +295,42 @@ function numberingRuleOf(documentType: string): NumberingRule | undefined {
  * `busy` を立ててから描き直すので、押した直後にボタンが無効になる。
  * これが無いと、二重に押せば同じ文書を2回登録しようとする（2回目はサーバーが
  * 409 で弾くが、利用者には理由の分からない失敗として出る）。
+ *
+ * ---
+ *
+ * **応答が返った時点で、この画面がまだ見えているとは限らない。**
+ *
+ * 待っている間に `[一覧へ戻る]` やヘッダーの `[一覧]` で別の画面へ移れるし、
+ * 解除・ロックの切り替えでも `main.ts` が描き直す。そのまま `draw()` すると
+ * **いま出ている画面を新規発行の入力欄で上書きする**。
+ *
+ * 判定は「掴んでおいた要素がまだ文書に繋がっているか」で行う
+ * （`passphrase.ts` の `isStillVisible` と同じ）。`#app` の中身を差し替えれば
+ * それ以前の要素は切り離されるので、**移動の仕方を問わず効く**。
+ * 描画のたびに増える番号では、同じ画面を開き直したときしか検知できない。
+ *
+ * 掴むのは `busy` を反映した描画の**後**。その前に掴むと、自分が呼んだ
+ * `draw()` で切り離されて、常に「移動した」と判定される。
+ *
+ * **`task()` の中でストアへ反映するところまでは、移動していても走らせる**
+ * （`register()` の `upsertDocument`）。登録は成功しているので台帳には載せる。
  */
-async function run(state: State, draw: () => void, task: () => Promise<void>): Promise<void> {
+async function run(
+  app: HTMLElement,
+  state: State,
+  draw: () => void,
+  task: () => Promise<void>,
+): Promise<void> {
   state.busy = true;
   draw();
+
+  const marker = app.querySelector('#new-form');
 
   try {
     await task();
   } finally {
     state.busy = false;
-    draw();
+    if (marker === null || marker.isConnected) draw();
   }
 }
 

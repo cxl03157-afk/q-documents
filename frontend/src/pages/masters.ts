@@ -36,6 +36,29 @@ type State = {
   draft: Draft | null;
 };
 
+/**
+ * 応答待ちの間に、この描画がまだ生きているかを判断するための2つ。
+ *
+ * **要素が文書に繋がっているかでは判断できない。** この画面は `draw()` が
+ * `#app` の中身を丸ごと差し替えるので、タブの切り替え・`[追加]`・`[修正]`・
+ * `[キャンセル]` のたびに以前の要素が切り離される。それを「移動した」と読むと、
+ * **通信中にタブを触っただけでサーバーの拒否理由が出なくなる**。
+ *
+ * 見分けたいのは次の2つだけで、自分のページ内の描き直しはどちらでもない。
+ *
+ *   `activeRender` — 同じ画面が改めて描かれた（`main.ts` の `refreshRoute()` が
+ *                    新しい `state` を作った）。古い `state` で描き直すと、
+ *                    開いていたタブや編集行が巻き戻る
+ *   `activeRoute`  — 別の画面へ移った。番号は増えないのでこちらでしか分からない
+ *                    （画面遷移はすべてハッシュ経由）
+ */
+let activeRender = 0;
+let activeRoute = '';
+
+function isCurrentRender(render: number): boolean {
+  return render === activeRender && location.hash === activeRoute;
+}
+
 export function renderMasters(): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
@@ -48,9 +71,12 @@ export function renderMasters(): void {
     draft: null,
   };
 
+  const render = ++activeRender;
+  activeRoute = location.hash;
+
   const draw = (): void => {
     app.innerHTML = template(state);
-    bindEvents(app, state, draw);
+    bindEvents(app, state, draw, render);
   };
   draw();
 }
@@ -189,7 +215,7 @@ function numberingRuleOptions(selected: NumberingRule | undefined): string {
 // 操作
 // ---------------------------------------------------------------------------
 
-function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
+function bindEvents(app: HTMLElement, state: State, draw: () => void, render: number): void {
   const root = app.querySelector<HTMLElement>('#masters-root');
   if (root === null) return;
 
@@ -228,7 +254,7 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
 
     if (target.id === 'save') {
       // save() 自身が結果に応じて draw() まで行う（送信中の二重クリックを防ぐため）
-      void save(app, state, draw);
+      void save(app, state, draw, render);
       return;
     }
 
@@ -245,13 +271,13 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
     // 物理削除はしない。過去の文書が参照しているため状態だけを変える
     const disableCode = target.dataset.disable;
     if (disableCode !== undefined) {
-      void setStatus(state, draw, disableCode, '無効', target);
+      void setStatus(state, draw, disableCode, '無効', target, render);
       return;
     }
 
     const enableCode = target.dataset.enable;
     if (enableCode !== undefined) {
-      void setStatus(state, draw, enableCode, '有効', target);
+      void setStatus(state, draw, enableCode, '有効', target, render);
     }
   });
 }
@@ -261,6 +287,10 @@ function bindEvents(app: HTMLElement, state: State, draw: () => void): void {
  *
  * 二重に押すと2回目は理由の分からない失敗に見えるので、送信中はボタンを止める。
  * ここで無効化しても再描画（`draw()`）で作り直されるため、明示的に戻す必要はない。
+ *
+ * **応答が返るまでに画面が変わっていることがある**（別の画面へ移る／解除・ロックの
+ * 切り替えで `main.ts` が描き直す）。判定は `isCurrentRender` で行う。
+ * **ストアへの反映は画面より先**に済ませる — 変更はサーバー側で成功しているため。
  */
 async function setStatus(
   state: State,
@@ -268,6 +298,7 @@ async function setStatus(
   code: string,
   status: MasterRecord['status'],
   button: HTMLElement,
+  render: number,
 ): Promise<void> {
   if (button instanceof HTMLButtonElement) button.disabled = true;
 
@@ -278,12 +309,16 @@ async function setStatus(
   );
 
   if (!result.ok) {
+    if (!isCurrentRender(render)) return;
     state.error = result.message;
     draw();
     return;
   }
 
   upsertMaster(result.data.master);
+
+  if (!isCurrentRender(render)) return;
+
   state.error = '';
   draw();
 }
@@ -294,7 +329,12 @@ async function setStatus(
  * どちらのエンドポイントを呼ぶかは、同じコードの既存レコードがあるかで決める
  * （追加行は必ず無く、修正行はコード欄が readonly で必ずある）。
  */
-async function save(app: HTMLElement, state: State, draw: () => void): Promise<void> {
+async function save(
+  app: HTMLElement,
+  state: State,
+  draw: () => void,
+  render: number,
+): Promise<void> {
   const row = app.querySelector<HTMLElement>('.editing-row');
   if (row === null) return;
 
@@ -334,13 +374,25 @@ async function save(app: HTMLElement, state: State, draw: () => void): Promise<v
           isMasterResponse,
         );
 
+  /**
+   * **応答を待つ間に画面が変わっていないか**（`isCurrentRender` の説明を見ること）。
+   * 変わっていればそこへ `draw()` してはいけない — **いま出ている画面を
+   * マスタ管理で上書きする**ことになる。
+   *
+   * ストアへの反映は画面より先に済ませる。保存はサーバー側で成功しているので、
+   * 利用者が別の画面へ移っていてもマスタには載せる（8/14 の決定）。
+   */
   if (!result.ok) {
+    if (!isCurrentRender(render)) return;
     state.error = result.message;
     draw();
     return;
   }
 
   upsertMaster(result.data.master);
+
+  if (!isCurrentRender(render)) return;
+
   state.adding = false;
   state.editing = null;
   state.error = '';
