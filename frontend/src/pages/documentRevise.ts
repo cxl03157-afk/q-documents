@@ -45,8 +45,10 @@ export function renderDocumentRevise(documentNo: string): void {
 
   // 手元の台帳での事前確認。サーバーも条件付き書き込みで弾くが、
   // 押す前に分かるほうがよい（CLAUDE.md §7 の二重化）
-  if (findDocument(newDocumentNo) !== undefined) {
-    app.innerHTML = messagePage(`Rev ${newRevision} は既に台帳にあります`, documentNo);
+  const existingNext = findDocument(newDocumentNo);
+  const conflict = existingNext === undefined ? null : nextRevisionConflict(existingNext);
+  if (conflict !== null) {
+    app.innerHTML = messagePage(conflict.message, documentNo, conflict.action);
     return;
   }
 
@@ -139,6 +141,71 @@ function fieldValue(form: HTMLFormElement, name: string): string {
   return '';
 }
 
+/** 進めない理由と、そこからの導線（あれば） */
+type Conflict = { message: string; action?: { href: string; label: string } };
+
+/**
+ * 次のリビジョンが既に台帳にある場合の扱い。進めてよければ null。
+ *
+ * **状態を見ずに一律で断ってはいけない。** 以前は「あれば断る」だけで、
+ * 次の2つの誤りがあった（8/17 の実機確認で判明）。
+ *
+ *   ファイル未登録・一部登録 — 断って行き止まりだった。実際にやることは
+ *                              **その Rev にファイルを登録すること**なので、S-5 へ送る
+ *   削除済み                 — **サーバーは通す**。`putNewDocument` の条件式が
+ *                              `attribute_not_exists(sortKey) OR status = '削除済み'` で、
+ *                              論理削除した番号は発行し直せるという規律そのもの
+ *                              （CLAUDE.md §5）。画面が断るのは §7 に反する
+ *
+ * 「最新」「旧版」はここで止める。どちらもこの文書IDの系列が既に先へ進んでいて、
+ * 同じ番号を作り直す操作にはならないため。**状態を併記する** —
+ * 番号だけ言われても、次に何をすればよいか判断できない。
+ */
+function nextRevisionConflict(next: DocumentRecord): Conflict | null {
+  if (next.status === '削除済み') return null;
+
+  const revision = next.revision;
+  const uploadAction = {
+    href: `#/documents/${encodeURIComponent(next.documentNo)}/upload`,
+    label: `Rev ${revision} をアップロード`,
+  };
+
+  if (next.status === 'ファイル未登録') {
+    return {
+      message: `Rev ${revision} は既に台帳にあります（ファイル未登録）。この Rev にファイルを登録してください`,
+      action: uploadAction,
+    };
+  }
+
+  if (next.status === '一部登録') {
+    const missing = missingFileLabels(next);
+    const detail =
+      missing.length === 1
+        ? `${missing[0]}が未登録です`
+        : '未登録のファイルがあります';
+    return {
+      message: `Rev ${revision} は既に台帳にあります（一部登録）。${detail}`,
+      action: uploadAction,
+    };
+  }
+
+  return { message: `Rev ${revision} は既に台帳にあります（${next.status}）` };
+}
+
+/**
+ * 台帳に登録されていないファイル種別。
+ *
+ * **判断に使うのは状態ではなく S3キーの有無。** 段1（キーの記録）から
+ * 段2（状態の更新）までにわずかな隙があり、その間はどちらの種別が埋まっているかを
+ * 状態からは判断できない（backend/src/routes/createRevision.ts と同じ理由）。
+ */
+function missingFileLabels(doc: DocumentRecord): string[] {
+  return [
+    doc.s3KeyPdf === undefined ? 'PDF' : null,
+    doc.s3KeyExcel === undefined ? 'エクセル' : null,
+  ].filter((label): label is string => label !== null);
+}
+
 /**
  * 「最新」以外からのリビジョンアップを早期に案内する（CLAUDE.md §7 の検証の二重化）。
  *
@@ -160,10 +227,7 @@ function ineligibleRevisionMessage(doc: DocumentRecord): string | null {
     return 'このリビジョンは削除済みです。新規発行でやり直してください';
   }
 
-  const missing = [
-    doc.s3KeyPdf === undefined ? 'PDF' : null,
-    doc.s3KeyExcel === undefined ? 'エクセル' : null,
-  ].filter((label): label is string => label !== null);
+  const missing = missingFileLabels(doc);
 
   if (missing.length === 2) {
     return 'このリビジョンにはまだファイルが登録されていません。PDFとエクセルを登録して「最新」にしてからリビジョンアップしてください';
@@ -286,11 +350,26 @@ function donePage(newDocumentNo: string): string {
   `;
 }
 
-function messagePage(message: string, documentNo: string): string {
+/**
+ * 進めない理由を出す画面。
+ *
+ * `action` は「ここからやり直せる」導線（S-5 へのリンク）。
+ * **行き止まりにしないために要る** — 理由だけ出して一覧へ戻らせると、
+ * 利用者は次に何をすればよいか分からないまま同じ操作を繰り返す。
+ */
+function messagePage(message: string, documentNo: string, action?: Conflict['action']): string {
+  const actionLink =
+    action === undefined
+      ? ''
+      : `<a class="btn-primary" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>`;
+
   return `
     <h1>リビジョンアップ</h1>
     <p class="form-error" role="alert">${escapeHtml(message)}</p>
     <p>対象の文書番号：${escapeHtml(documentNo)}</p>
-    <p><a href="#/">一覧へ戻る</a></p>
+    <div class="result-actions">
+      ${actionLink}
+      <a class="btn-end" href="#/">一覧へ戻る</a>
+    </div>
   `;
 }
