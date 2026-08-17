@@ -1,22 +1,26 @@
 /**
  * マスタ判定の純粋関数テスト（CLAUDE.md「テストを書く範囲」1に準ずる）。
  *
- * 対象は3つに絞る。他の判定関数（`activeMasters` 等）は単純なフィルタで
+ * 対象は4つに絞る。他の判定関数（`activeMasters` 等）は単純なフィルタで
  * 間違えにくいため対象外（CLAUDE.md「全体網羅はしない」）。
  *
  *   hasAnotherProcessScopedDocumentType — 「工程単位の文書種類は1つまで」
  *   ownerChangeRejection               — S-7 の「変更するときだけ有効を要求する」規律
  *   同名の担当者                        — 有効なほうを優先して引く（`findOwnerByName`）
+ *   isLastActiveOwner                  — 最後の有効な担当者を無効化させない
  *
  * 2つめを入れるのは、**他の3経路（新規発行・リビジョンアップ）と規律が違う唯一の場所**だから。
  * 間違えると壊れ方が「本来断るものを通す」か「直せるはずのものを断る」のどちらかで、
  * どちらも正常系のテストでは気づけない。
+ *
+ * 4つめは、**間違えると誰も解除できなくなり、画面からは戻せない**（AWS権限が要る）。
  */
 import { describe, expect, it } from 'vitest';
 import {
   activeOwnerRejection,
   hasAnotherProcessScopedDocumentType,
   isActiveOwner,
+  isLastActiveOwner,
   ownerChangeRejection,
 } from './masters';
 import type { MasterRecord } from './types';
@@ -153,5 +157,54 @@ describe('同名の担当者（無効＋有効）', () => {
 
   it('1件も無ければ「登録されていません」のまま', () => {
     expect(activeOwnerRejection([], '山田太郎')).toBe('担当者がマスタに登録されていません');
+  });
+});
+
+/**
+ * 最後の有効な担当者は無効化できない（`PATCH /masters/{id}`）。
+ *
+ * 通すと**画面から復旧できない締め出し**ができる（`isLastActiveOwner` の説明）。
+ * 対象を絞る条件を間違えやすいので、断る側・通す側の両方を押さえる。
+ */
+describe('isLastActiveOwner', () => {
+  const owner = (code: string, status: MasterRecord['status']): MasterRecord => ({
+    category: '担当者',
+    code,
+    name: `担当者${code}`,
+    status,
+    registeredAt: '',
+  });
+
+  it('有効な担当者が自分1人だけなら true（断る）', () => {
+    expect(isLastActiveOwner([owner('E001', '有効')], 'E001')).toBe(true);
+  });
+
+  it('他に有効な担当者がいれば false（通す）', () => {
+    const masters = [owner('E001', '有効'), owner('E002', '有効')];
+    expect(isLastActiveOwner(masters, 'E001')).toBe(false);
+  });
+
+  it('無効な担当者が何人いても数に入らない', () => {
+    const masters = [owner('E001', '有効'), owner('E002', '無効'), owner('E003', '無効')];
+    expect(isLastActiveOwner(masters, 'E001')).toBe(true);
+  });
+
+  it('既に無効な行が対象なら false（無効→無効の空振りは断らない）', () => {
+    const masters = [owner('E001', '有効'), owner('E002', '無効')];
+    expect(isLastActiveOwner(masters, 'E002')).toBe(false);
+  });
+
+  it('有効な担当者が1人でも、対象が別のコードなら false', () => {
+    const masters = [owner('E001', '有効')];
+    expect(isLastActiveOwner(masters, 'E002')).toBe(false);
+  });
+
+  it('同じコードの別カテゴリに引っ張られない（キーは category + code）', () => {
+    const masters: MasterRecord[] = [
+      owner('E001', '有効'),
+      owner('E002', '有効'),
+      { category: '製品コード', code: 'E001', name: '製品E001', status: '有効', registeredAt: '' },
+    ];
+    expect(isLastActiveOwner(masters, 'E001')).toBe(false);
   });
 });

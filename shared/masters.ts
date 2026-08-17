@@ -177,6 +177,28 @@ export function ownerChangeRejection(
 }
 
 /**
+ * その担当者を無効化すると、有効な担当者が1人もいなくなるか（`PATCH /masters/{id}`）。
+ *
+ * **これを断らないと、画面から復旧できない締め出しが作れる。**
+ * 有効な担当者が0人になると S-2 の氏名プルダウンが空になり、
+ * `POST /auth/unlock` も `isActiveOwner` で 401 を返す。マスタの編集には
+ * トークンが要るので、**有効化して戻すこともできない**。
+ * 復旧は `scripts/seed-masters.sh`（AWS権限を持つ人）だけになる。
+ * `[無効化]` を押すだけで起きるので、合言葉の締め出しより起こりやすい。
+ *
+ * **担当者にだけ要る規律。** 製品コード・工程番号・文書種類を全て無効化しても、
+ * 止まるのは新規発行だけで解除は続けられるため、画面から戻せる。
+ *
+ * **既に無効な行を対象にしたときは false。** 「無効→無効」の空振りまで断ると、
+ * 既に0人になっている状態（＝復旧作業の途中）で何も操作できなくなる。
+ * 断るのは「いま有効な最後の1人を落とす」瞬間だけでよい。
+ */
+export function isLastActiveOwner(masters: MasterRecord[], code: string): boolean {
+  const actives = masters.filter((m) => m.category === '担当者' && m.status === '有効');
+  return actives.length === 1 && actives[0]?.code === code;
+}
+
+/**
  * 「工程単位の文書種類は1つまで」を破っていないか（`POST /masters`・`PATCH /masters/{id}`）。
  *
  * 工程単位の文書番号（`製品コード_工程番号_工程名_Rev`）は文書種類コードを含まない。

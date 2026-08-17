@@ -11,6 +11,7 @@ import type { MasterCategory, MasterRecord, NumberingRule } from '../../../share
 import { apiPatchAuthed, apiPostAuthed } from '../lib/api';
 import { isMasterResponse } from '../lib/guards';
 import { escapeHtml } from '../lib/html';
+import { isLastActiveOwner } from '../lib/masters';
 import { allMasters, upsertMaster } from '../lib/store';
 
 const CATEGORIES: MasterCategory[] = ['文書種類', '製品コード', '工程番号', '担当者'];
@@ -115,6 +116,12 @@ function template(state: State): string {
       </tbody>
     </table>
 
+    ${
+      state.category === '担当者'
+        ? '<p class="form-note">有効な担当者が1人だけのときは、その担当者を無効化できません（氏名を選べる人がいなくなり、誰も解除できなくなるため）。担当者を入れ替える場合は、先に新しい担当者を追加してください。</p>'
+        : ''
+    }
+
     <p class="form-note">コードは検索・保存のキーになるため、登録後は変更できません。誤って登録した場合は無効化のうえ、正しい内容で追加し直してください。</p>
 
     <div class="result-actions">
@@ -156,14 +163,31 @@ function viewRow(state: State, record: MasterRecord): string {
       <td>${escapeHtml(record.status)}</td>
       <td>
         <button type="button" class="btn-row-link" data-edit="${escapeHtml(record.code)}">修正</button>
-        ${
-          record.status === '有効'
-            ? `<button type="button" class="btn-row-link" data-disable="${escapeHtml(record.code)}">無効化</button>`
-            : `<button type="button" class="btn-row-link" data-enable="${escapeHtml(record.code)}">有効化</button>`
-        }
+        ${statusButton(record)}
       </td>
     </tr>
   `;
+}
+
+/**
+ * `[無効化]`/`[有効化]` のどちらを出すか。
+ *
+ * **最後の有効な担当者には `[無効化]` を出さない。** 押せてしまうと有効な担当者が
+ * 0人になり、S-2 の氏名プルダウンが空になって**誰も解除できなくなる**。
+ * この画面はトークンが要るので、有効化して戻すこともできない
+ * （復旧は `scripts/seed-masters.sh`＝AWS権限）。
+ *
+ * **正はサーバー側**（`backend/src/routes/updateMaster.ts` が 409 で断る）。
+ * ここで消しているのは、押してから断られるより押せないほうが分かりやすいからで、
+ * 画面の制御は開発者ツールから回避できる（CLAUDE.md §7）。
+ * 理由は表の下の注記で伝える（ボタンが無い理由が読み取れないため）。
+ */
+function statusButton(record: MasterRecord): string {
+  if (record.status !== '有効') {
+    return `<button type="button" class="btn-row-link" data-enable="${escapeHtml(record.code)}">有効化</button>`;
+  }
+  if (record.category === '担当者' && isLastActiveOwner(record.code)) return '';
+  return `<button type="button" class="btn-row-link" data-disable="${escapeHtml(record.code)}">無効化</button>`;
 }
 
 /** 追加（record = null）と修正で同じ行を使う。項目が同じなので分ける理由がない */
