@@ -16,16 +16,20 @@
  *   ⑥ ③で作ったトークンを返す
  *
  * **③を④より前に置くのが要点。** 書き込みのあとに失敗しうる処理を残さないことで、
- * 部分失敗が「合言葉は元のまま」の2通りに揃う。
+ * 部分失敗が下の2通りに収まる。
  *
  *   ④で失敗 — 何も変わっていない。そのまま再試行できる
- *   ⑤で失敗 — 合言葉は元のまま。署名鍵だけ変わり、全員（本人含む）の解除が切れる。
- *              **元の合言葉**で解除し直して再試行する
+ *   ⑤で失敗 — 署名鍵は変わり、全員（本人含む）の解除が切れる。
+ *              **合言葉が変わったかどうかは分からない** — 例外は要求が届かなかった
+ *              場合にも、書き込みが済んで応答だけ失われた場合にも出る。
+ *              解除し直して再試行する（新しい合言葉が通らなければ元の合言葉）
  *
- * 逆の順序（合言葉を先に書く）にすると、書き込み後の失敗で「合言葉は新しくなったが
- * 変更は失敗した」という状態が生まれる。利用者は失敗と聞いて元の合言葉を試すため
- * 入れなくなり、**単純な再試行では復旧できない**。SSM にトランザクションは無いので、
- * 原子性ではなく「どちらに転んでも同じことが言える順序」で解く。
+ * **この順序でも、⑤の曖昧さは消せない**（SSM にトランザクションは無い）。
+ * 消せるのは④のほうで、**先に書くのが署名鍵だからこそ「何も変わっていない」と
+ * 言い切れる**。逆の順序（合言葉を先に書く）にすると、1本目で同じ曖昧さが出たうえ、
+ * そこで止まれば署名鍵が古いまま合言葉だけ変わった状態になる。
+ * 利用者は失敗と聞いて元の合言葉を試すため入れず、**解除の導線も出ない**。
+ * 原子性ではなく「曖昧さを1か所に寄せ、そこでは解除し直しを案内できる」形で解く。
  *
  * ③の時点ではトークンは無害。署名鍵がまだ SSM のどこにも無いので、④が失敗すれば
  * このトークンはどのコンテナでも検証を通らない。
@@ -34,7 +38,7 @@
 import { randomBytes } from 'node:crypto';
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { isActiveOwner } from '../../../shared/masters';
-import { passphraseRejectionReason } from '../../../shared/passphrasePolicy';
+import { normalizePassphrase, passphraseRejectionReason } from '../../../shared/passphrasePolicy';
 import { passphraseMatches } from '../auth/passphrase';
 import { forceRefreshUnlockSecrets, writeUnlockSecret } from '../auth/secrets';
 import { issueToken } from '../auth/token';
@@ -157,12 +161,23 @@ export async function postPassphrase(context: AuthedContext): Promise<APIGateway
   // --- ⑤ 合言葉の保存 -------------------------------------------------------
 
   try {
-    await writeUnlockSecret('passphrase', request.newPassphrase);
+    /**
+     * **保存するのは正規化した値。** `passphraseRejectionReason` が見たのも
+     * 正規化後の文字列なので、判定した値と保存する値が一致する。
+     * 照合側（`passphraseMatches`）も同じ関数を通る（shared/passphrasePolicy.ts）。
+     */
+    await writeUnlockSecret('passphrase', normalizePassphrase(request.newPassphrase));
   } catch (error) {
     /**
      * **ここだけは人が気づく必要がある。**
-     * 署名鍵だけが変わった状態で、全員の解除が切れている。合言葉は元のままなので
-     * 締め出しではないが、原因が分からないと「突然みんなログアウトした」で終わる。
+     * 署名鍵は変わっており、全員の解除が切れている。原因が分からないと
+     * 「突然みんなログアウトした」で終わる。
+     *
+     * **合言葉が変わったかどうかは、ここからは分からない。**
+     * 例外は「要求が届かなかった」場合だけでなく「書き込みは終わったが応答が
+     * 返らなかった」場合にも出る。**断定できるのは④まで**（署名鍵は必ず変わった）で、
+     * ⑤は新旧どちらの可能性もある。案内は両方に耐える書き方にする
+     * — 同じファイルの通信エラーの案内が既にそうしているのと揃える。
      */
     console.error(
       JSON.stringify({ message: 'passphrase change failed after token-secret rotation', userName, stage: 'passphrase' }),
@@ -171,7 +186,7 @@ export async function postPassphrase(context: AuthedContext): Promise<APIGateway
     return errorResponse(
       origin,
       500,
-      '合言葉は変更されていません。解除が切れるので、解除し直してからやり直してください',
+      '合言葉は変更されている可能性があります。解除が切れるので、新しい合言葉で解除し直し、入れない場合は元の合言葉をお試しください',
       { stage: 'secret-rotated' },
     );
   }

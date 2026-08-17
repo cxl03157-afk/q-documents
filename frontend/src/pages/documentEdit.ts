@@ -13,13 +13,19 @@ import { findDocument, upsertDocument } from '../lib/store';
 import { activeMasters, findMaster } from '../lib/masters';
 
 /**
- * 開くたびに増やす番号。PATCH・DELETE の応答待ちの間に別の画面へ移った場合に
- * 「まだこの画面を見ているか」を判定する（documentUpload.ts と同じパターン）。
+ * PATCH・DELETE の応答待ちの間に「まだこの画面を見ているか」を判定するための2つ
+ * （documentUpload.ts と同じパターン）。
+ *
+ * **番号だけでは足りない。** 番号が増えるのは同じ画面をもう一度開いたときだけで、
+ * `[一覧へ戻る]` やヘッダーの `[一覧]` で**別の画面へ移っても増えない**。
+ * 画面遷移はすべてハッシュ経由なので、描いた時点のルートと今のルートを比べれば
+ * 移動の仕方を問わず分かる。
  */
 let activeSession = 0;
+let activeRoute = '';
 
 function isCurrentSession(session: number): boolean {
-  return session === activeSession;
+  return session === activeSession && location.hash === activeRoute;
 }
 
 export function renderDocumentEdit(documentNo: string): void {
@@ -27,6 +33,7 @@ export function renderDocumentEdit(documentNo: string): void {
   if (!app) return;
 
   const session = ++activeSession;
+  activeRoute = location.hash;
 
   const doc = findDocument(documentNo);
   if (doc === undefined || doc.status === '削除済み') {

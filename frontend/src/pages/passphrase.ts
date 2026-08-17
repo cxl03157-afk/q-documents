@@ -9,7 +9,12 @@
  * 別々に書くと「画面では通ったのにサーバーが違う理由で拒否する」が起きる。
  */
 
-import { MAX_PASSPHRASE_LENGTH, MIN_PASSPHRASE_LENGTH, passphraseRejectionReason } from '../../../shared/passphrasePolicy';
+import {
+  MAX_PASSPHRASE_LENGTH,
+  MIN_PASSPHRASE_LENGTH,
+  normalizePassphrase,
+  passphraseRejectionReason,
+} from '../../../shared/passphrasePolicy';
 import { endSession, getSession, updateToken } from '../auth/session';
 import { NETWORK_ERROR_STATUS, apiPostAuthed } from '../lib/api';
 import { escapeHtml } from '../lib/html';
@@ -40,7 +45,8 @@ function isChangeResponse(value: unknown): value is ChangeResponse {
  * 500 応答に載る、**どこまで進んだか**（backend/src/routes/changePassphrase.ts）。
  *
  *   none           何も変わっていない。そのまま再試行できる
- *   secret-rotated 合言葉は元のまま。署名鍵だけ変わり、全員の解除が切れた
+ *   secret-rotated 署名鍵が変わり、全員の解除が切れた。
+ *                  **合言葉が変わったかどうかはサーバーにも分からない**
  *
  * 文言だけで見分けると、通信エラーなど別の失敗にまで「解除が切れました」と
  * 出してしまう。画面の出し分けはこの値で行う。
@@ -142,8 +148,13 @@ async function submit(app: HTMLElement, form: HTMLFormElement): Promise<void> {
    * **確認欄の一致はここでしか見られない。** サーバーは合言葉を1つしか保存しないので、
    * 2つ送っても検証のしようがない。打ち間違えたまま登録されると、次に入力するときに
    * 再現できず**誰も解除できなくなる**ため、この確認は必須。
+   *
+   * **比べる前に正規化する。** 片方を貼り付け（NFD）・もう片方を手入力（NFC）すると、
+   * 見た目が同じなのに一致せず、`showError` が3欄とも消すので**打ち直しても同じ場所で
+   * 止まり続ける**。保存も照合も正規化後の値で行う以上（shared/passphrasePolicy.ts）、
+   * ここだけ素で比べる理由がない。
    */
-  if (next !== confirm) {
+  if (normalizePassphrase(next) !== normalizePassphrase(confirm)) {
     showError(app, form, '新しい合言葉が一致しません');
     return;
   }
@@ -197,11 +208,12 @@ async function submit(app: HTMLElement, form: HTMLFormElement): Promise<void> {
   }
 
   /**
-   * 署名鍵だけが変わった場合（サーバー側の⑤で失敗）。
+   * 署名鍵が変わったあとで失敗した場合（サーバー側の⑤で失敗）。
    *
-   * **合言葉は元のまま**だが、この端末を含む全員の解除が切れている。
+   * この端末を含む全員の解除が切れている。**合言葉が新旧どちらかは分からない**
+   * （書き込みが済んで応答だけ失われたかもしれない）。
    * そのまま再試行させると、まだ有効な操作に見えて 401 が返るだけなので、
-   * 解除し直す導線を出す。
+   * 解除し直す導線を出す。どちらの合言葉で入るかは、そこで試してもらう。
    *
    * **画面を離れていても、持っているトークンが死んだ事実は変わらない。**
    * 成功時のセッション載せ替えと同じで、状態の後始末は画面の有無で絞らない
@@ -262,12 +274,18 @@ function completedPage(): string {
   `;
 }
 
-/** 署名鍵だけが変わってしまった場合。合言葉は元のままなので、元の合言葉で解除し直す */
+/**
+ * 署名鍵が変わったあとで失敗した場合。解除し直してもらう。
+ *
+ * **どちらの合言葉で入れるかは断定しない。** サーバー側でも判別できない
+ * （backend/src/routes/changePassphrase.ts の⑤）。断定して外すと、
+ * 利用者は「合言葉が壊れた」と受け取って復旧作業に入ってしまう。
+ */
 function reunlockPage(message: string): string {
   return `
     <h1>合言葉の変更</h1>
     <p class="form-error" role="alert">${escapeHtml(message)}</p>
-    <p class="form-note">合言葉は変わっていないので、これまでと同じ合言葉で解除できます。</p>
+    <p class="form-note">新しい合言葉で解除できない場合は、これまでの合言葉をお試しください。</p>
     <p><button type="button" id="reunlock" class="btn-primary">解除し直す</button></p>
   `;
 }

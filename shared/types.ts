@@ -92,8 +92,11 @@ export type DocumentRecord = {
    * 両方揃うと非同期Lambdaが「最新」にする。
    * この optional 性が状態5値と対応している。
    *
-   * TODO(週3): 状態遷移の実装時に status を判別子にした union へ格上げする。
-   * 今やっても DynamoDB の境界で `as` を通すと守られないので、境界検証と対で入れる。
+   * **`status` を判別子にした union へは格上げしない**（週3で検討して見送った）。
+   * 型で縛っても DynamoDB から読んだ値は境界で `as` を通るので守られず、
+   * 実効的な保証は非同期Lambdaの条件付き書き込みのほうにある。
+   * 状態とキーの対応を判断する場所は `backend/src/async/transition.ts` の
+   * 純粋関数1か所に寄せてあり、そこはテストで覆っている。
    */
   s3KeyPdf?: string;
   s3KeyExcel?: string;

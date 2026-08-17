@@ -22,6 +22,52 @@ export const MIN_PASSPHRASE_LENGTH = 8;
 export const MAX_PASSPHRASE_LENGTH = 20;
 
 /**
+ * 合言葉を Unicode 正規化（NFC）する。**保存する側と照合する側の両方で必ず通す。**
+ *
+ * 「が」のような濁点付きの文字は、1文字として持つ形（NFC）と
+ * 「か」＋結合用の濁点の2文字で持つ形（NFD）があり、**見た目は同じでもバイト列が違う**。
+ * macOS のファイル名由来の文字列は NFD、Windows の入力は NFC になりやすい。
+ *
+ * 正規化しないと、NFD で保存された合言葉は Windows から手で打っても一致せず、
+ * **貼り付けた本人以外は誰も解除できない**。原因は画面からは絶対に分からない
+ * （同じ文字が表示されているため）。
+ *
+ * `passphraseMatches`（backend/src/auth/passphrase.ts）でも同じ関数を通す。
+ * 片側だけ正規化すると、保存できたのに照合できない状態になる。
+ */
+export function normalizePassphrase(value: string): string {
+  return value.normalize('NFC');
+}
+
+/**
+ * 表示されない文字。**含まれていたら弾く（端だけでなく、どこにあっても）。**
+ *
+ * Web ページやメールから合言葉を貼り付けると、ゼロ幅スペースや書字方向の制御文字が
+ * 一緒に入ることがある。**確認用の欄にも同じ値を貼るので画面上では気づけない**。
+ * そのまま登録されると、以後は手で入力しても二度と一致せず、
+ * 復旧手段は `scripts/reset-passphrase.sh` しか残らない。
+ *
+ * **文字を列挙せず、Unicode の一般カテゴリで判定する。**
+ * 当初は6文字（ゼロ幅系・ソフトハイフン・BOM）を並べていたが、
+ * **書字方向の制御文字（U+200E/200F・U+202A〜202E・U+2066〜2069・U+061C）を
+ * 取りこぼしていた**（セルフレビューの指摘）。列挙は増えるたびに漏れるので、
+ * 「表示されない文字」という判定理由をそのまま条件にする。
+ *
+ *   `\p{Cf}` 書式制御文字 — 上記すべてを含む
+ *   `\p{Cc}` 制御文字     — 改行・タブ。単一行の入力欄には入りにくいが、
+ *                          混ざれば同じく再入力できなくなる
+ *
+ * `\s` はゼロ幅スペース（U+200B〜200D）を含まず、BOM（U+FEFF）も前後にある場合しか
+ * 拾えないので、下の前後空白チェックとは別に要る。
+ *
+ * **弾きすぎていないことは実測で確認した。** 日本語・英数字・半角/全角スペース・
+ * 絵文字（`😀`）・異体字セレクタ付きの絵文字（`❤️` の U+FE0F は `Mn` で `Cf` ではない）は
+ * すべて通る。ZWJ で結合した絵文字（`👨‍👩‍👧`）だけは弾かれるが、
+ * **繋ぎ方まで含めて手で打ち直せる文字列ではない**ので意図どおり。
+ */
+const INVISIBLE_CHARS = /\p{Cc}|\p{Cf}/u;
+
+/**
  * 見た目の文字数を数える。
  *
  * `String.prototype.length` は UTF-16 の符号単位を数えるので、絵文字や一部の記号が
@@ -37,12 +83,27 @@ function characterLength(value: string): number {
  *
  * 真偽値ではなく理由の文字列を返すのは、画面とサーバーで文言を揃えるため。
  * 別々に書くと「画面では通ったのにサーバーが違う理由で拒否する」が起きる。
+ *
+ * **判定はすべて正規化した値に対して行う。** 保存されるのも正規化後の値なので
+ * （`changePassphrase.ts`）、ここで見た文字列と保存される文字列が食い違わない。
  */
 export function passphraseRejectionReason(
   newPassphrase: string,
   currentPassphrase: string,
 ): string | null {
-  const length = characterLength(newPassphrase);
+  const normalized = normalizePassphrase(newPassphrase);
+
+  /**
+   * 表示されない文字を先に弾く。**長さより前に置く。**
+   *
+   * 貼り付けでゼロ幅文字が混ざったときに「20文字を超えています」と出ると、
+   * 画面には20文字しか見えていないので原因にたどり着けない。
+   */
+  if (INVISIBLE_CHARS.test(normalized)) {
+    return '新しい合言葉に表示されない文字が含まれています。貼り付けずに手で入力してください';
+  }
+
+  const length = characterLength(normalized);
 
   if (length < MIN_PASSPHRASE_LENGTH || length > MAX_PASSPHRASE_LENGTH) {
     return `新しい合言葉は${MIN_PASSPHRASE_LENGTH}〜${MAX_PASSPHRASE_LENGTH}文字にしてください`;
@@ -57,12 +118,17 @@ export function passphraseRejectionReason(
    * `\s` は**全角スペース（U+3000）も含む**ので、これ1つで足りる
    * （日本語入力のまま打つと混入しやすく、実際に一番起きやすいのはこれ）。
    */
-  if (/^\s|\s$/.test(newPassphrase)) {
+  if (/^\s|\s$/.test(normalized)) {
     return '新しい合言葉の前後に空白を入れないでください';
   }
 
-  // 変えたつもりで変わっていない状態を防ぐ
-  if (newPassphrase === currentPassphrase) {
+  /**
+   * 変えたつもりで変わっていない状態を防ぐ。
+   *
+   * **現行の合言葉も正規化してから比べる。** 手で投入した既存の値が NFD の場合、
+   * 正規化しないと「見た目は同じなのに別物」と判定して通してしまう。
+   */
+  if (normalized === normalizePassphrase(currentPassphrase)) {
     return '新しい合言葉が現在の合言葉と同じです';
   }
 

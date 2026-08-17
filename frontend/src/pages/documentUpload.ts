@@ -40,6 +40,9 @@ type FileType = 'pdf' | 'excel';
 /** `renderDocumentUpload` を呼ぶたびに増える。非同期処理の結果を書き込んでよいかの目印 */
 let activeSession = 0;
 
+/** 描いた時点のルート。**番号では別の画面への移動を検知できない**（isCurrentSession を見ること） */
+let activeRoute = '';
+
 export function renderDocumentUpload(documentNo: string): void {
   const app = document.querySelector<HTMLElement>('#app');
   if (!app) return;
@@ -58,6 +61,7 @@ export function renderDocumentUpload(documentNo: string): void {
   }
 
   const session = ++activeSession;
+  activeRoute = location.hash;
   renderForm(app, doc, new Set(), session);
 }
 
@@ -224,9 +228,15 @@ function selectedFile(form: HTMLFormElement, name: string): File | undefined {
 
 type PickedFiles = { pdf?: File; excel?: File };
 
-/** 今見ている文書のアップロード画面が、まだ表示され続けているか */
+/**
+ * 今見ている文書のアップロード画面が、まだ表示され続けているか。
+ *
+ * **番号とルートの両方を見る。** 番号が増えるのは同じ画面をもう一度開いたときだけで、
+ * `[一覧へ戻る]` やヘッダーの `[一覧]` で**別の画面へ移っても増えない**。
+ * 画面遷移はすべてハッシュ経由なので、描いた時点のルートと比べれば移動の仕方を問わない。
+ */
 function isCurrentSession(session: number): boolean {
-  return session === activeSession;
+  return session === activeSession && location.hash === activeRoute;
 }
 
 /** 必須欄が変わらない失敗（何も新たに成功していない）の復元。選択済みのファイルは残す */
