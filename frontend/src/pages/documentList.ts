@@ -418,7 +418,8 @@ function downloadUrlPath(doc: DocumentRecord, fileType: FileType, disposition: D
 
 /**
  * ブラウザにファイルを保存させる。`lib/csv.ts` の `downloadCsv` と同じ
- * 「`<a>` を作ってclickして消す」パターン。**画面は離れない** —
+ * 「`<a>` を作って文書に入れ、click して消す」パターン
+ * （あちらは Blob URL なので、そのあと解放する分だけ長い）。**画面は離れない** —
  * サーバー側が `Content-Disposition: attachment` を返すため、ブラウザは
  * ページ遷移ではなくダウンロードとして扱う（backend/src/s3.ts）。
  */
