@@ -6,7 +6,9 @@
  * **検証はサーバーが正**（CLAUDE.md §7）。この画面は入力を集めて送るだけで、
  * 合言葉と照合するコードをここには持たない。
  *
- * 氏名の選択肢はまだモックのマスタから作っている。`GET /masters` の接続は F-10 で行う。
+ * 氏名の選択肢は `GET /masters` で取得した担当者マスタから作る（`lib/store.ts`）。
+ * **有効なものだけを出す。** サーバーも同じ規則で弾くので（`isActiveOwner`）、
+ * 無効な担当者を選べても 401 になるだけ。
  */
 
 import { isUnlocked, startSession } from '../auth/session';
