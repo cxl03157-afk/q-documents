@@ -417,16 +417,32 @@ function downloadUrlPath(doc: DocumentRecord, fileType: FileType, disposition: D
 }
 
 /**
- * ブラウザにファイルを保存させる。`lib/csv.ts` の `downloadCsv` と同じ
- * 「`<a>` を作って文書に入れ、click して消す」パターン
- * （あちらは Blob URL なので、そのあと解放する分だけ長い）。**画面は離れない** —
- * サーバー側が `Content-Disposition: attachment` を返すため、ブラウザは
- * ページ遷移ではなくダウンロードとして扱う（backend/src/s3.ts）。
+ * `<a>` を作って文書に入れ、click して消す。`lib/csv.ts` の `downloadCsv` と同じ形
+ * （あちらは Blob URL なので、そのあと解放する分だけ長い）。
+ *
+ * **保存（`newTab: false`）では画面は離れない** — サーバー側が
+ * `Content-Disposition: attachment` を返すため、ブラウザはページ遷移ではなく
+ * ダウンロードとして扱う（backend/src/s3.ts）。
+ *
+ * **閲覧（`newTab: true`）でも `window.open` は使わない。**
+ * `window.open(url, '_blank', 'noopener')` は**仕様上いつも `null` を返す**ので
+ * （`noopener` を指定すると新しい窓の参照を渡さない決まり）、返り値でブロックを
+ * 判定することはできない。以前はここで判定しており、**PDFが正常に開いていても
+ * 毎回「ポップアップがブロックされました」と出ていた**（8/17 の実機確認で判明）。
+ *
+ * アンカーの click に変えると、その代わりに**ブロックされたことを知る手段が無くなる**。
+ * 現状の判定は100%誤検知なので、検知は捨てるほうがよいと判断した。
+ * リンクの click はブラウザ側もブロックしにくい（`window.open` より通りやすい）。
+ *
+ * `rel` は閲覧でも外さない。`noopener` が無いと、開いた先のページが
+ * `window.opener` からこの画面を操作できる。`noreferrer` は署名付きURLを
+ * Referer に載せないため（`noopener` も兼ねるが、意図を明示するため両方書く）。
  */
-function triggerDownload(url: string): void {
+function openViaAnchor(url: string, newTab: boolean): void {
   const link = document.createElement('a');
   link.href = url;
-  link.rel = 'noopener';
+  link.rel = 'noopener noreferrer';
+  if (newTab) link.target = '_blank';
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -442,22 +458,8 @@ async function handleFileAction(doc: DocumentRecord, fileType: FileType, mode: F
     return;
   }
 
-  if (mode === 'download') {
-    triggerDownload(result.data.url);
-    return;
-  }
-
-  /**
-   * 閲覧は新しいタブで開く。1クリックにつき1回だけの呼び出しなので基本的に問題ないが、
-   * 直前に `await` を挟んでいる（＝ユーザー操作からの直接呼び出しではない）ため、
-   * 回線が遅い・Lambdaのコールドスタートで応答が遅れた場合はブロックされうる
-   * （特にSafariは判定が厳しい。8/12のレビューで指摘）。`window.open` の戻り値が
-   * `null` ならブロックされているので、無言で終わらせず案内する。
-   */
-  const win = window.open(result.data.url, '_blank', 'noopener');
-  if (win === null) {
-    window.alert('ポップアップがブロックされました。ブラウザの設定で許可してから、もう一度お試しください。');
-  }
+  // 閲覧だけ新しいタブで開く（サーバーは `inline` で返す）。保存はこの画面のまま
+  openViaAnchor(result.data.url, mode === 'view');
 }
 
 // ---------------------------------------------------------------------------
