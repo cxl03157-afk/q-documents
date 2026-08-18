@@ -14,6 +14,7 @@ import {
   findActiveMaster as findActiveMasterOf,
   findMaster as findMasterOf,
   isCommonProductCode as isCommonProductCodeOf,
+  isLastActiveOwner as isLastActiveOwnerOf,
   selectableDocumentTypes as selectableDocumentTypesOf,
 } from '../../../shared/masters';
 import type { MasterCategory, MasterRecord } from '../../../shared/types';
@@ -45,4 +46,9 @@ export function isCommonProductCode(productCode: string): boolean {
 /** その製品コードで発行できる文書種類。共通コードでは工程単位のものだけ */
 export function selectableDocumentTypes(productCode: string): MasterRecord[] {
   return selectableDocumentTypesOf(allMasters(), productCode);
+}
+
+/** 最後の有効な担当者か。S-6 で `[無効化]` を出すかの判断に使う（正はサーバー側） */
+export function isLastActiveOwner(code: string): boolean {
+  return isLastActiveOwnerOf(allMasters(), code);
 }

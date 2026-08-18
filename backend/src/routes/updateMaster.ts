@@ -10,7 +10,7 @@
 
 import type { APIGatewayProxyResult } from 'aws-lambda';
 import { buildMasterId, parseMasterId } from '../../../shared/masterId';
-import { hasAnotherProcessScopedDocumentType } from '../../../shared/masters';
+import { hasAnotherProcessScopedDocumentType, isLastActiveOwner } from '../../../shared/masters';
 import type { MasterPatch, MasterStatus, NumberingRule } from '../../../shared/types';
 import { errorResponse, jsonResponse } from '../http';
 import { loadMasters, updateMasterRecord } from '../masters';
@@ -104,6 +104,32 @@ export async function patchMaster(context: AuthedContext): Promise<APIGatewayPro
         context.origin,
         409,
         '工程単位の文書種類は既に登録されています（作業指示書のみが対象の想定）',
+      );
+    }
+  }
+
+  /**
+   * 最後の有効な担当者は無効化させない（shared/masters.ts の `isLastActiveOwner`）。
+   *
+   * 通すと**画面から復旧できない締め出し**ができる。有効な担当者が0人になると
+   * S-2 の氏名プルダウンが空になり、`POST /auth/unlock` も 401 を返す。
+   * ここ（マスタの編集）はトークンが要るので、有効化して戻すこともできない。
+   *
+   * **読み直すのは無効化のときだけ。** 上の分岐の `loadMasters()` は
+   * 「文書種類 かつ 工程単位」でしか走らないので、担当者では別に1回要る。
+   * 条件を絞ってあるので `[修正]`・`[有効化]`・他カテゴリの読み取りは増えない。
+   *
+   * 同時実行のレースは「工程単位は1つまで」と同じ扱い（docs/context.md 8/10 の決定）。
+   * アイテム横断の制約は条件付き書き込み1本では保証できず、マスタの編集は
+   * 低頻度の管理操作なので事前の読み取りだけで足りると判断している。
+   */
+  if (category === '担当者' && patch.status === '無効') {
+    const masters = await loadMasters();
+    if (isLastActiveOwner(masters, code)) {
+      return errorResponse(
+        context.origin,
+        409,
+        '最後の有効な担当者は無効化できません（誰も解除できなくなるため）。先に別の担当者を追加してください',
       );
     }
   }

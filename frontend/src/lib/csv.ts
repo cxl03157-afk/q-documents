@@ -62,7 +62,7 @@ const REVOKE_DELAY_MS = 1000;
  *
  * **`<a>` は文書に入れてから click する。** 文書に繋がっていない要素の click を
  * 無視するブラウザがあり、その場合も無言で何も起きない
- * （`documentList.ts` の `triggerDownload` と同じ形）。
+ * （`documentList.ts` の `openViaAnchor` と同じ形）。
  */
 export function downloadCsv(fileName: string, csv: string): void {
   const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
