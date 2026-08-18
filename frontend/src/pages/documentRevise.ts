@@ -179,12 +179,22 @@ function nextRevisionConflict(next: DocumentRecord): Conflict | null {
 
   if (next.status === '一部登録') {
     const missing = missingFileLabels(next);
-    const detail =
-      missing.length === 1
-        ? `${missing[0]}が未登録です`
-        : '未登録のファイルがあります';
+
+    /**
+     * 両方揃っているのに「一部登録」。段1（キーの記録）と段2（状態の更新）の
+     * 隙間に入るとここへ来る（`ineligibleRevisionMessage` と同じ理由）。
+     *
+     * **S-5 へ送ってはいけない。** 登録するものが無く「両方登録済み」で断られ、
+     * 案内した先が行き止まりになる。待てば非同期Lambdaが「最新」にする。
+     */
+    if (missing.length === 0) {
+      return {
+        message: `Rev ${revision} は既に台帳にあります（登録処理中）。しばらく待ってからやり直してください`,
+      };
+    }
+
     return {
-      message: `Rev ${revision} は既に台帳にあります（一部登録）。${detail}`,
+      message: `Rev ${revision} は既に台帳にあります（一部登録）。${missing.join('と')}が未登録です`,
       action: uploadAction,
     };
   }
