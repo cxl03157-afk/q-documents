@@ -32,7 +32,7 @@
 | ------------------------------------------------ | -------------------- |
 | [docs/要件定義書.md](docs/要件定義書.md)                   | 背景・機能要件・非機能要件・受け入れ基準 |
 | [docs/tech-stack.md](docs/tech-stack.md)         | 技術選定と、採用しなかった技術の理由   |
-| [docs/screens.md](docs/screens.md)               | 画面設計（7画面）            |
+| [docs/screens.md](docs/screens.md)               | 画面設計（8画面）            |
 | [docs/API.md](docs/API.md)                       | APIエンドポイント一覧         |
 | [docs/DynamoDBテーブル設計.md](docs/DynamoDBテーブル設計.md) | キー設計と採番ルール           |
 | [docs/phase-roadmap.md](docs/phase-roadmap.md)   | 実装計画                 |
